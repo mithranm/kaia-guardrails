@@ -75,12 +75,16 @@ class CommandInterceptor:
         
         if needs_human_review:
             human_result = self._get_human_decision(analytics, llm_result)
-            return {
-                **llm_result if llm_result else {},
-                **human_result,
+            result_dict = {
                 "final_decision": human_result["decision"],
                 "decision_authority": "human"
             }
+            # Add LLM result if it exists
+            if llm_result:
+                result_dict.update(llm_result)
+            # Add human result
+            result_dict.update(human_result)
+            return result_dict
         
         # Use LLM decision
         if llm_result:
