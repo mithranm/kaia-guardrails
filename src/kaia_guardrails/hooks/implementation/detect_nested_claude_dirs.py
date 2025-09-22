@@ -255,7 +255,8 @@ class DetectNestedClaudeDirsHook(HookBase):
     def run(self, context: Dict[str, Any]) -> Any:
         """Detect nested .claude directories."""
         try:
-            project_root = get_project_root()
+            # Use project root from context instead of cwd()
+            project_root = Path(context.get('cwd', os.getcwd()))
             nested_claudes = find_nested_claude_dirs(project_root)
 
             if not nested_claudes:

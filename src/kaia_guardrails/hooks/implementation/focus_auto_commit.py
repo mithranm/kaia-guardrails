@@ -4,6 +4,7 @@ Focus Process Auto-Commit Hook
 Automatically commits every tool call when in a focus process.
 Each tool call becomes a git commit for precise rollback capability.
 """
+import os
 from typing import Dict, Any
 from pathlib import Path
 
@@ -26,8 +27,9 @@ class FocusAutoCommitHook(HookBase):
             return None
 
         try:
-            # Initialize focus process manager
-            focus_manager = FocusProcessManager()
+            # Initialize focus process manager with project root from context
+            project_root = Path(context.get('cwd', os.getcwd()))
+            focus_manager = FocusProcessManager(project_root=project_root)
             focus_info = focus_manager.get_current_focus_info()
 
             # Only auto-commit if we're in a focus process with auto-commit enabled

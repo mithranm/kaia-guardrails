@@ -22,6 +22,7 @@ class ModelOutputLoggerHook(HookBase):
         super().__init__(name="model_output_logger", priority=200)  # Run last to capture all context
         self.logger = None
         self.log_dir = None
+        self.current_project_root = None  # Set during run() from context
         self.setup_logging()
 
     def setup_logging(self):
@@ -39,12 +40,17 @@ class ModelOutputLoggerHook(HookBase):
             # Clear existing handlers
             self.logger.handlers.clear()
 
-            # Create rotating file handler (10MB max, keep 5 backups)
-            log_file = self.log_dir / 'model_outputs.jsonl'
-            handler = RotatingFileHandler(
+            # Create daily rotating file handler with date suffix
+            current_date = datetime.now().strftime('%Y-%m-%d')
+            log_file = self.log_dir / f'model_outputs_{current_date}.jsonl'
+
+            # Use TimedRotatingFileHandler for daily rotation
+            from logging.handlers import TimedRotatingFileHandler
+            handler = TimedRotatingFileHandler(
                 log_file,
-                maxBytes=10*1024*1024,  # 10MB
-                backupCount=5,
+                when='midnight',
+                interval=1,
+                backupCount=7,  # Keep 7 days of logs
                 encoding='utf-8'
             )
 
@@ -52,16 +58,6 @@ class ModelOutputLoggerHook(HookBase):
             formatter = logging.Formatter('%(message)s')
             handler.setFormatter(formatter)
             self.logger.addHandler(handler)
-
-            # Also create a summary log
-            summary_file = self.log_dir / 'execution_summary.jsonl'
-            self.summary_handler = RotatingFileHandler(
-                summary_file,
-                maxBytes=5*1024*1024,  # 5MB
-                backupCount=3,
-                encoding='utf-8'
-            )
-            self.summary_handler.setFormatter(formatter)
 
             print(f"[MODEL-OUTPUT-LOGGER] Logging to: {log_file}")
 
@@ -74,9 +70,16 @@ class ModelOutputLoggerHook(HookBase):
         if not self.logger:
             return None
 
+        # Store project root from context for this run
+        self.current_project_root = Path(context.get('cwd', os.getcwd()))
+
         try:
             hook_type = context.get('hook_type')
             tool_name = context.get('tool_name', 'unknown')
+
+            # Skip logging for failed JSON parsing attempts (noise reduction)
+            if hook_type == 'unknown' and tool_name in ['', 'unknown']:
+                return None
 
             # Log different hook types with appropriate detail
             if hook_type == 'PreToolUse':
@@ -144,7 +147,6 @@ class ModelOutputLoggerHook(HookBase):
         }
 
         self._write_log_entry(log_entry)
-        self._write_summary_entry(log_entry)
 
     def _log_user_prompt(self, context: Dict[str, Any]) -> None:
         """Log user prompt submissions for conversation tracking."""
@@ -363,6 +365,10 @@ class ModelOutputLoggerHook(HookBase):
 
     def _get_project_root(self) -> Path:
         """Find the project root directory."""
+        # Use project root from context if available, fallback to discovery
+        if self.current_project_root:
+            return self.current_project_root
+
         current = Path.cwd()
         while current.parent != current:
             if (current / '.git').exists():
@@ -375,22 +381,3 @@ class ModelOutputLoggerHook(HookBase):
         if self.logger:
             self.logger.info(json.dumps(entry, ensure_ascii=False))
 
-    def _write_summary_entry(self, entry: Dict[str, Any]) -> None:
-        """Write a summary entry for high-level tracking."""
-        if hasattr(self, 'summary_handler'):
-            summary_entry = {
-                'timestamp': entry['timestamp'],
-                'ansi_timestamp': entry['ansi_timestamp'],
-                'friendly_process_name': entry['friendly_process_name'],
-                'tool_name': entry.get('tool_name', 'unknown'),
-                'focus_context': entry.get('focus_context', {}),
-                'operation_summary': entry.get('operation_result', 'unknown'),
-                'metadata_summary': {
-                    'files_count': len(entry.get('metadata', {}).get('files_modified', [])),
-                    'operation_type': entry.get('metadata', {}).get('tool_operation', 'unknown')
-                }
-            }
-
-            summary_logger = logging.getLogger('claude_execution_summary')
-            summary_logger.addHandler(self.summary_handler)
-            summary_logger.info(json.dumps(summary_entry, ensure_ascii=False))

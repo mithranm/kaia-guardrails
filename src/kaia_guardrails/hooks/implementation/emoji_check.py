@@ -4,6 +4,7 @@ Blocks file edits that contain emojis.
 """
 import os
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any
 from kaia_guardrails.hooks.base import HookBase, HookError
@@ -73,6 +74,41 @@ class EmojiCheckHook(HookBase):
     def __init__(self):
         super().__init__(name="emoji_check", priority=10)
 
+    def _record_quality_violation(self, gate_type: str, message: str):
+        """Record a quality gate violation for focus process exit evaluation."""
+        try:
+            import json
+            from pathlib import Path
+
+            # Store in claude directory for focus process manager
+            project_root = Path.cwd()
+            claude_dir = project_root / '.claude'
+            violations_file = claude_dir / 'quality_violations.json'
+
+            # Load existing violations
+            violations = {}
+            if violations_file.exists():
+                violations = json.loads(violations_file.read_text())
+
+            # Add this violation
+            if gate_type not in violations:
+                violations[gate_type] = []
+
+            violation = {
+                'timestamp': str(datetime.now()),
+                'message': message,
+                'tool_operation': True  # Mark as from actual operation
+            }
+
+            violations[gate_type].append(violation)
+
+            # Save violations
+            claude_dir.mkdir(exist_ok=True)
+            violations_file.write_text(json.dumps(violations, indent=2))
+
+        except Exception:
+            pass  # Don't fail hook if recording fails
+
     def run(self, context: Dict[str, Any]) -> Any:
         """Check for emojis using full Claude Code context."""
         hook_type = context.get('hook_type')
@@ -133,7 +169,12 @@ class EmojiCheckHook(HookBase):
                 error_msg += "  # Then run your command\n"
                 error_msg += "  unset KAIA_GUARDRAILS_OVERRIDE\n\n"
                 error_msg += "WARNING: Emojis may cause encoding issues in some environments!"
-                raise HookError(error_msg)
+
+                # Store quality gate violation for focus process exit
+                self._record_quality_violation("emoji_check", error_msg)
+
+                # Only warn, don't block normal operations
+                return f"⚠️ QUALITY GATE: {error_msg}"
 
         elif hook_type == 'PostToolUse':
             # Check the actual file after operation

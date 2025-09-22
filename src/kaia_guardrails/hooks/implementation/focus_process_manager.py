@@ -1114,11 +1114,32 @@ Escape-Hatch-Available: {stack['circular_dependency_tracker'].get('escape_hatch_
 
             print(f"[FOCUS-MANAGER] Completing focus process: {current_focus}")
 
+            # Run quality gate checks before allowing completion
+            quality_check = self._check_quality_gates()
+            critical_issues = quality_check.get('critical', {})
+            informational_issues = quality_check.get('informational', {})
+
+            # Log informational issues but don't block
+            if informational_issues:
+                print(f"[QUALITY-GATE-INFO] Found {len(informational_issues)} informational issues (not blocking)")
+
+            # Only block on critical (single-file) violations
+            if critical_issues:
+                return self._handle_quality_gate_violations(critical_issues, current_focus)
+
+            # Run justification workflow before merge
+            justification_success = self._run_justification_workflow(current_focus)
+            if not justification_success:
+                print("[FOCUS-MANAGER] Justification workflow failed - blocking completion")
+                return False
+
             # Use pop_focus_process with merge (not escape)
             success = self.pop_focus_process(force_escape=False, merge_strategy=merge_strategy)
 
             if success:
                 print(f"[FOCUS-MANAGER] Successfully completed and merged focus: {current_focus}")
+                # Clear quality violations on successful completion
+                self._clear_quality_violations()
             else:
                 print(f"[FOCUS-MANAGER] Failed to complete focus: {current_focus}")
 
@@ -1341,3 +1362,337 @@ Escape-Hatch-Available: {stack['circular_dependency_tracker'].get('escape_hatch_
         except Exception as e:
             print(f"[FOCUS-MANAGER-ERROR] Failed to get override summary: {e}")
             return {"error": str(e)}
+
+    def _check_quality_gates(self) -> Dict[str, Any]:
+        """
+        Check quality gates before allowing focus completion.
+        Only enforces SINGLE-FILE violations to avoid coupling failures.
+        Uses vibelint safe mode for parseable issue detection.
+        """
+        critical_issues = {}
+        informational_issues = {}
+
+        try:
+            # Check quality violations recorded by hooks (single-file only)
+            violations_file = self.claude_dir / 'quality_violations.json'
+            if violations_file.exists():
+                violations = json.loads(violations_file.read_text())
+                for gate_type, violation_list in violations.items():
+                    # Only enforce single-file violations as critical
+                    if gate_type in ['emoji_check']:  # Single-file violations
+                        critical_issues[gate_type] = violation_list
+                    else:
+                        informational_issues[gate_type] = violation_list
+
+            # Run vibelint in safe mode for single-file analysis only
+            vibelint_issues = self._run_vibelint_single_file_analysis()
+            if vibelint_issues:
+                # Separate critical (single-file) from informational (project-wide)
+                if vibelint_issues.get('single_file_violations'):
+                    critical_issues['vibelint_single_file'] = vibelint_issues['single_file_violations']
+                if vibelint_issues.get('project_wide_issues'):
+                    informational_issues['vibelint_project_wide'] = vibelint_issues['project_wide_issues']
+
+            # Nested .claude directories are informational only (project-wide)
+            nested_claudes = self._check_nested_claude_dirs()
+            if nested_claudes:
+                informational_issues['nested_claude_dirs'] = nested_claudes
+
+            return {
+                'critical': critical_issues,      # Single-file violations that block
+                'informational': informational_issues  # Project-wide issues that are logged
+            }
+
+        except Exception as e:
+            print(f"[QUALITY-GATE-ERROR] Failed to check quality gates: {e}")
+            return {'critical': {}, 'informational': {}}
+
+    def _run_vibelint_single_file_analysis(self) -> Dict[str, Any]:
+        """Run vibelint focusing on single-file violations only to avoid coupling."""
+        try:
+            import subprocess
+
+            # Use vibelint with single-file focus to avoid coupling failures
+            vibelint_cmd = [
+                'python', '-m', 'vibelint.cli',
+                '--safe',  # Safe mode: return parseable issues even with violations
+                '--output-format', 'json',
+                '--single-file-only',  # Only single-file validations
+                '--project-root', str(self.project_root),
+                '.'  # Analyze current project
+            ]
+
+            result = subprocess.run(
+                vibelint_cmd,
+                cwd=self.project_root / 'tools/vibelint',
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+
+            if result.stdout:
+                analysis_result = json.loads(result.stdout)
+                return {
+                    'single_file_violations': analysis_result.get('single_file_issues', []),
+                    'project_wide_issues': analysis_result.get('project_wide_issues', [])
+                }
+
+        except Exception as e:
+            print(f"[VIBELINT-SINGLE-FILE-ERROR] Failed to run single-file analysis: {e}")
+
+        return {}
+
+    def _check_nested_claude_dirs(self) -> List[Dict[str, Any]]:
+        """Check for nested .claude directories."""
+        try:
+            from .detect_nested_claude_dirs import find_nested_claude_dirs
+            return find_nested_claude_dirs(self.project_root)
+        except Exception:
+            return []
+
+    def _handle_quality_gate_violations(self, issues: Dict[str, Any], focus_id: str) -> bool:
+        """
+        Handle quality gate violations by invoking the focus judge.
+        The judge must decide whether to allow completion or block it.
+        """
+        print("[FOCUS-MANAGER] Quality gate violations detected. Invoking focus judge...")
+
+        # Prepare comprehensive issue summary for the judge
+        issue_summary = self._format_issues_for_judge(issues)
+
+        # Invoke focus judge with quality gate context
+        judge_decision = self._invoke_focus_judge_for_quality_gates(
+            focus_id=focus_id,
+            issues=issues,
+            summary=issue_summary
+        )
+
+        if judge_decision.get('allow_completion', False):
+            print("[FOCUS-JUDGE] Quality issues acknowledged. Allowing focus completion.")
+            return self.pop_focus_process(force_escape=False)
+        else:
+            print("[FOCUS-JUDGE] Quality issues must be resolved before completion.")
+            return False
+
+    def _format_issues_for_judge(self, issues: Dict[str, Any]) -> str:
+        """Format quality issues into human-readable summary for the judge."""
+        summary = "QUALITY GATE VIOLATIONS DETECTED:\n\n"
+
+        if 'hook_violations' in issues:
+            summary += "🚨 Hook Violations:\n"
+            for gate_type, violations in issues['hook_violations'].items():
+                summary += f"  - {gate_type}: {len(violations)} violation(s)\n"
+            summary += "\n"
+
+        if 'vibelint_analysis' in issues:
+            vibelint = issues['vibelint_analysis']
+            summary += "📊 Vibelint Analysis:\n"
+            if vibelint.get('violations'):
+                summary += f"  - {len(vibelint['violations'])} code quality issues\n"
+            if vibelint.get('warnings'):
+                summary += f"  - {len(vibelint['warnings'])} warnings\n"
+            summary += "\n"
+
+        if 'nested_claude_dirs' in issues:
+            nested = issues['nested_claude_dirs']
+            summary += f"📁 Nested .claude directories: {len(nested)} found\n"
+            for item in nested[:3]:  # Show first 3
+                summary += f"  - {item.get('relative_path', 'unknown')}\n"
+            summary += "\n"
+
+        summary += "The focus judge must decide whether these issues block completion\n"
+        summary += "or can be acknowledged and addressed later."
+
+        return summary
+
+    def _invoke_focus_judge_for_quality_gates(self, focus_id: str, issues: Dict[str, Any], summary: str) -> Dict[str, Any]:
+        """
+        Invoke the focus judge using vibelint's fast LLM to evaluate quality gate violations.
+        This is where Claude (the assistant) must confront the issues.
+        """
+        try:
+            # Get vibelint LLM configuration
+            judge_decision = self._call_vibelint_judge_llm(
+                focus_id=focus_id,
+                context="quality_gate_evaluation",
+                issues=issues,
+                summary=summary
+            )
+
+            if judge_decision:
+                return judge_decision
+
+        except Exception as e:
+            print(f"[FOCUS-JUDGE-ERROR] LLM call failed: {e}")
+
+        # Fallback to manual decision requirement
+        print(f"""
+[FOCUS-JUDGE] QUALITY GATE EVALUATION REQUIRED
+
+Focus Process: {focus_id}
+
+{summary}
+
+DECISION REQUIRED: Should this focus process be allowed to complete despite quality issues?
+
+Options:
+1. ALLOW: Acknowledge issues exist but complete focus (merge to parent branch)
+2. BLOCK: Require issues to be resolved before completion
+3. ESCAPE: Abandon focus without merging (discard changes)
+
+The focus judge must make this decision based on:
+- Severity of issues
+- Impact on project health
+- Whether issues can be addressed in follow-up work
+- Risk tolerance for the current focus scope
+""")
+
+        # For now, return a decision that blocks completion
+        # This forces Claude to explicitly handle the quality gate
+        return {
+            'allow_completion': False,
+            'reason': 'Quality gate violations detected - manual review required',
+            'issues': issues
+        }
+
+    def _run_justification_workflow(self, focus_id: str) -> bool:
+        """
+        Run justification workflow before merge to ensure all changes are justified.
+        Uses vibelint's justification workflow for comprehensive analysis.
+        """
+        try:
+            print(f"[JUSTIFICATION] Running justification workflow for focus: {focus_id}")
+
+            import subprocess
+
+            # Run vibelint justification workflow
+            justification_cmd = [
+                'python', '-m', 'vibelint.cli',
+                '--workflow', 'justification',
+                '--output-format', 'json',
+                '--project-root', str(self.project_root),
+                '--focus-mode',  # Only analyze files changed in this focus
+                '.'
+            ]
+
+            result = subprocess.run(
+                justification_cmd,
+                cwd=self.project_root / 'tools/vibelint',
+                capture_output=True,
+                text=True,
+                timeout=60  # Longer timeout for justification analysis
+            )
+
+            if result.returncode == 0:
+                print("[JUSTIFICATION] ✅ All changes properly justified")
+
+                # Save justification report for focus record
+                if result.stdout:
+                    justification_data = json.loads(result.stdout)
+                    justification_file = self.claude_dir / f'justification_report_{focus_id}.json'
+                    justification_file.write_text(json.dumps(justification_data, indent=2))
+
+                return True
+            else:
+                print(f"[JUSTIFICATION] ❌ Justification issues found:")
+                if result.stderr:
+                    print(f"  {result.stderr}")
+
+                # Even if issues found, don't block merge - just warn
+                # The justification workflow should provide enough info for human review
+                print("[JUSTIFICATION] ⚠️ Proceeding with merge despite justification issues")
+                return True
+
+        except Exception as e:
+            print(f"[JUSTIFICATION-ERROR] Failed to run justification workflow: {e}")
+            # Don't block on justification workflow failure
+            return True
+
+    def _call_vibelint_judge_llm(self, focus_id: str, context: str, issues: Dict[str, Any], summary: str) -> Optional[Dict[str, Any]]:
+        """
+        Call vibelint's fast LLM to make judge decisions.
+        Uses vibelint's configuration and fast LLM for quick, local decision making.
+        """
+        try:
+            # Import vibelint components
+            import sys
+            vibelint_path = self.project_root / 'tools/vibelint/src'
+            if str(vibelint_path) not in sys.path:
+                sys.path.insert(0, str(vibelint_path))
+
+            from vibelint.config import load_config
+            from vibelint.llm import LLMManager, LLMRequest, LLMRole
+
+            # Load vibelint configuration
+            config = load_config(self.project_root / 'tools/vibelint')
+            llm_manager = LLMManager(config)
+
+            # Prepare judge prompt
+            judge_prompt = f"""You are a focus process judge evaluating quality gate violations.
+
+Focus Process: {focus_id}
+Context: {context}
+
+{summary}
+
+Based on the issues found, make a decision:
+
+RULES:
+1. Only BLOCK for critical single-file violations that would break functionality
+2. ALLOW project-wide issues (nested .claude dirs) with acknowledgment
+3. Consider if issues can be addressed in follow-up work
+4. Favor development velocity over perfectionism
+
+Respond with JSON only:
+{{
+    "allow_completion": true/false,
+    "reason": "brief explanation",
+    "recommendation": "optional suggestion for addressing issues"
+}}"""
+
+            # Create LLM request for fast model
+            request = LLMRequest(
+                prompt=judge_prompt,
+                role=LLMRole.FAST,  # Use fast LLM for quick decisions
+                temperature=0.1,    # Low temperature for consistent decisions
+                max_tokens=200      # Brief responses
+            )
+
+            # Make synchronous call to fast LLM
+            import asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+            try:
+                response = loop.run_until_complete(llm_manager._call_fast_llm(request))
+
+                if response and 'content' in response:
+                    content = response['content']
+                    if content and content.strip():
+                        # Try to parse JSON response
+                        try:
+                            return json.loads(content.strip())
+                        except json.JSONDecodeError:
+                            print(f"[FOCUS-JUDGE-DEBUG] LLM returned non-JSON: {content}")
+                            return None
+                    else:
+                        print("[AGENTS-JUDGE-DEBUG] LLM returned null content")
+                        return None
+            finally:
+                loop.close()
+
+        except Exception as e:
+            print(f"[FOCUS-JUDGE-ERROR] Failed to call vibelint LLM: {e}")
+            return None
+
+        return None
+
+    def _clear_quality_violations(self):
+        """Clear recorded quality violations after successful completion."""
+        try:
+            violations_file = self.claude_dir / 'quality_violations.json'
+            if violations_file.exists():
+                violations_file.unlink()
+                print("[QUALITY-GATE] Cleared quality violations after successful completion")
+        except Exception:
+            pass

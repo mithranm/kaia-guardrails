@@ -1,4 +1,4 @@
-#!/Users/briyamanick/miniconda3/envs/mcp-unified/bin/python
+#!/usr/bin/env python3
 """
 AGENTS.md Compliance Judge Hook - Context-Aware with Guided JSON
 
