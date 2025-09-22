@@ -292,16 +292,23 @@ def get_embedding_config():
         config = load_config(get_project_root())
         embeddings_config = config.settings.get('embeddings', {})
 
+        # STRICT CONFIG MODE: All required fields must be present
+        if 'natural_api_url' not in embeddings_config:
+            raise ValueError("REQUIRED CONFIG MISSING: 'natural_api_url' not found in embeddings config")
+        if 'code_api_url' not in embeddings_config:
+            raise ValueError("REQUIRED CONFIG MISSING: 'code_api_url' not found in embeddings config")
+
         return {
-            'natural_api_url': embeddings_config.get('natural_api_url', 'https://vanguardtwo-embedding-auth-worker.mithran-mohanraj.workers.dev'),
+            'natural_api_url': embeddings_config['natural_api_url'],
             'natural_model': embeddings_config.get('natural_model', 'bge-m3'),
             'natural_dimensions': embeddings_config.get('natural_dimensions', 1024),
-            'code_api_url': embeddings_config.get('code_api_url', 'https://vanguardone-embedding-auth-worker.mithran-mohanraj.workers.dev'),
+            'code_api_url': embeddings_config['code_api_url'],
             'code_model': embeddings_config.get('code_model', 'graphcodebert-base'),
             'code_dimensions': embeddings_config.get('code_dimensions', 768)
         }
     except Exception as e:
-        print(f"Config load error: {e}, using defaults")
+        print(f"[QDRANT-INGESTER-FATAL] Configuration error: {e}", file=sys.stderr)
+        raise  # Fail loudly, no defaults
         # Fallback configuration
         return {
             'natural_api_url': 'https://vanguardtwo-embedding-auth-worker.mithran-mohanraj.workers.dev',

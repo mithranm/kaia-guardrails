@@ -119,62 +119,22 @@ class EmojiCheckHook(HookBase):
         if tool_name not in ['Write', 'Edit', 'MultiEdit']:
             return None
 
-        has_emojis = False
-        emoji_errors = []
-
         if hook_type == 'PreToolUse':
-            # Check content that will be written/edited
-            if tool_name == 'Write':
-                content = tool_input.get('content', '')
-                if content:
-                    has_emojis, emoji_errors = self._check_content_for_emojis(content)
+            # Check if Claude is adding NEW emojis
+            is_adding_new_emojis = self._is_adding_new_emojis(tool_name, tool_input)
 
-            elif tool_name == 'Edit':
-                new_content = tool_input.get('new_string', '')
-                if new_content:
-                    has_emojis, emoji_errors = self._check_content_for_emojis(new_content)
+            if is_adding_new_emojis:
+                # Try to auto-fix with vibelint instead of blocking
+                auto_fix_result = self._attempt_vibelint_autofix(tool_name, tool_input)
 
-            elif tool_name == 'MultiEdit':
-                edits = tool_input.get('edits', [])
-                for edit in edits:
-                    new_content = edit.get('new_string', '')
-                    if new_content:
-                        edit_has_emojis, edit_errors = self._check_content_for_emojis(new_content)
-                        if edit_has_emojis:
-                            has_emojis = True
-                            emoji_errors.extend(edit_errors)
+                if auto_fix_result['success']:
+                    return f"[EMOJI-CHECK] Auto-fixed emojis using vibelint: {auto_fix_result['message']}"
+                else:
+                    # Store quality gate violation for focus process exit evaluation
+                    violation_msg = f"New emojis detected in {tool_name} operation - vibelint auto-fix failed"
+                    self._record_quality_violation("emoji_check", violation_msg)
 
-            # BLOCK if emojis found in PreToolUse (unless override is set)
-            if has_emojis:
-                if self._check_for_override():
-                    # Track override usage and get any reset messages
-                    from .override_usage_tracker import get_override_tracker
-                    tracker = get_override_tracker()
-                    tracker_message = tracker.track_override_usage("emoji_check", "emoji_check")
-
-                    print(f"[EMOJI-CHECK] Override flag detected - allowing emoji content in {tool_name}")
-                    base_message = f"Override: Allowing emoji content (override active)"
-
-                    if tracker_message:
-                        return f"{base_message}\n\n{tracker_message}"
-                    else:
-                        return base_message
-
-                error_msg = f"BLOCKED: Emojis found in {tool_name} operation\n"
-                for error in emoji_errors:
-                    error_msg += f"  {error}\n"
-                error_msg += "  Remove emojis before editing to avoid encoding issues.\n\n"
-                error_msg += "EMERGENCY OVERRIDE: If you absolutely must use emojis, set:\n"
-                error_msg += "  export KAIA_GUARDRAILS_OVERRIDE=emoji_check\n"
-                error_msg += "  # Then run your command\n"
-                error_msg += "  unset KAIA_GUARDRAILS_OVERRIDE\n\n"
-                error_msg += "WARNING: Emojis may cause encoding issues in some environments!"
-
-                # Store quality gate violation for focus process exit
-                self._record_quality_violation("emoji_check", error_msg)
-
-                # Only warn, don't block normal operations
-                return f"⚠️ QUALITY GATE: {error_msg}"
+                    return f"⚠️ QUALITY GATE: New emojis detected (auto-fix failed: {auto_fix_result['error']})"
 
         elif hook_type == 'PostToolUse':
             # Check the actual file after operation
@@ -202,6 +162,135 @@ class EmojiCheckHook(HookBase):
                 errors.append(f"Line {line_num}: Found emoji(s): {emojis}")
 
         return len(errors) > 0, errors
+
+    def _is_adding_new_emojis(self, tool_name: str, tool_input: Dict[str, Any]) -> bool:
+        """
+        Check if the operation would add NEW emojis compared to existing content.
+        Returns True only if emoji count would increase.
+        """
+        try:
+            if tool_name == 'Write':
+                # For Write operations, check if file exists and compare emoji counts
+                file_path = tool_input.get('file_path', '')
+                new_content = tool_input.get('content', '')
+
+                if not file_path:
+                    return False
+
+                # Check emojis in new content
+                new_has_emojis, _ = self._check_content_for_emojis(new_content)
+                if not new_has_emojis:
+                    return False  # No emojis in new content
+
+                # Check if file exists and has existing emojis
+                try:
+                    from pathlib import Path
+                    path = Path(file_path)
+                    if path.exists():
+                        existing_content = path.read_text(encoding='utf-8')
+                        existing_emoji_count = len(EMOJI_PATTERN.findall(existing_content))
+                        new_emoji_count = len(EMOJI_PATTERN.findall(new_content))
+                        return new_emoji_count > existing_emoji_count
+                    else:
+                        # New file with emojis = adding new emojis
+                        return True
+                except Exception:
+                    # If we can't read existing file, assume it's adding new emojis
+                    return True
+
+            elif tool_name == 'Edit':
+                # For Edit operations, only check the new_string content
+                new_string = tool_input.get('new_string', '')
+                has_emojis, _ = self._check_content_for_emojis(new_string)
+                return has_emojis  # Any emoji in new_string counts as adding
+
+            elif tool_name == 'MultiEdit':
+                # For MultiEdit, check if any edit adds emojis
+                edits = tool_input.get('edits', [])
+                for edit in edits:
+                    new_string = edit.get('new_string', '')
+                    has_emojis, _ = self._check_content_for_emojis(new_string)
+                    if has_emojis:
+                        return True
+
+            return False
+
+        except Exception:
+            # If we can't determine, err on the side of caution
+            return False
+
+    def _attempt_vibelint_autofix(self, tool_name: str, tool_input: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Attempt to use vibelint to automatically fix emoji issues.
+
+        Returns:
+            Dict with 'success' (bool), 'message' (str), and optional 'error' (str)
+        """
+        try:
+            import subprocess
+            import tempfile
+            from pathlib import Path
+
+            if tool_name == 'Write':
+                # For Write operations, fix the content before writing
+                content = tool_input.get('content', '')
+                if not content:
+                    return {'success': False, 'error': 'No content to fix'}
+
+                # Write content to temp file for vibelint processing
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as tmp_file:
+                    tmp_file.write(content)
+                    tmp_path = tmp_file.name
+
+                try:
+                    # Run vibelint fix on the temp file
+                    result = subprocess.run(
+                        ['vibelint', 'fix', tmp_path, '--emoji-removal'],
+                        capture_output=True,
+                        text=True,
+                        timeout=30
+                    )
+
+                    if result.returncode == 0:
+                        # Read back the fixed content
+                        fixed_content = Path(tmp_path).read_text()
+
+                        # Update the tool_input with fixed content
+                        tool_input['content'] = fixed_content
+
+                        return {
+                            'success': True,
+                            'message': f'Removed emojis from content using vibelint'
+                        }
+                    else:
+                        return {
+                            'success': False,
+                            'error': f'vibelint fix failed: {result.stderr}'
+                        }
+
+                finally:
+                    # Clean up temp file
+                    try:
+                        Path(tmp_path).unlink()
+                    except:
+                        pass
+
+            elif tool_name in ['Edit', 'MultiEdit']:
+                # For Edit operations, we can't modify the tool input dynamically
+                # Just record as quality gate violation for focus exit evaluation
+                return {
+                    'success': False,
+                    'error': 'Cannot auto-fix Edit operations - will be checked at focus exit'
+                }
+
+            return {'success': False, 'error': 'Unsupported tool type for auto-fix'}
+
+        except subprocess.TimeoutExpired:
+            return {'success': False, 'error': 'vibelint fix timed out'}
+        except FileNotFoundError:
+            return {'success': False, 'error': 'vibelint command not found'}
+        except Exception as e:
+            return {'success': False, 'error': f'Auto-fix error: {str(e)}'}
 
     def _check_for_override(self) -> bool:
         """

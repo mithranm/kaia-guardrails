@@ -67,27 +67,34 @@ def check_focus_process_drift(context: Dict[str, Any]) -> bool:
     file_path = tool_input.get('file_path', '')
     file_paths = [file_path] if file_path else []
     
-    # Skip drift checking for certain safe tools
-    safe_tools = ['read', 'glob', 'grep', 'bash']
-    if tool_name.lower() in safe_tools:
-        return False  # Don't block safe tools
+    # Only check drift for file-modifying tools
+    modifying_tools = ['write', 'edit', 'multiedit']
+    if tool_name.lower() not in modifying_tools:
+        return False  # Only check drift for file modifications
     
     try:
-        process_info = load_current_focus_process()
-        current_focus = process_info.get('current_focus', 'UNKNOWN')
-        
-        # If no focus is set, allow operation but warn
-        if current_focus == 'UNKNOWN':
-            print(f"[FOCUS-DRIFT-GUARD-WARN] No current focus process set, allowing {tool_name}", file=sys.stderr)
-            return False
-        
-        
+        # Use the focus process manager to get current focus
+        from .focus_process_manager import FocusProcessManager
+
+        focus_manager = FocusProcessManager()
+        focus_info = focus_manager.get_current_focus_info()
+
+        current_focus = focus_info.get('focus_id', 'UNKNOWN')
+        focus_description = focus_info.get('description', '')
+
+        # If no focus is set, REQUIRE focus process for file modifications
+        if current_focus == 'UNKNOWN' or not current_focus:
+            print(f"[FOCUS-DRIFT-GUARD] No current focus process set - BLOCKING {tool_name}", file=sys.stderr)
+            print(f"[FOCUS-DRIFT-GUARD] File modifications require an active focus process", file=sys.stderr)
+            print(f"[FOCUS-DRIFT-GUARD] Use FocusProcessManager.push_focus_process() to start a focus", file=sys.stderr)
+            return True  # BLOCK - require focus process for modifications
+
         # System cleanup focus allows all operations
         if current_focus == 'system_cleanup':
             return False
 
-        # Simple drift detection based on focus keywords
-        focus_keywords = current_focus.lower().split()
+        # Enhanced drift detection using focus description and file paths
+        focus_keywords = (current_focus + ' ' + focus_description).lower().split()
         all_file_paths = ' '.join(file_paths).lower()
 
         # Check if any focus keywords appear in the file paths
@@ -102,10 +109,9 @@ def check_focus_process_drift(context: Dict[str, Any]) -> bool:
             print(f"   This may be drifting from current focus process.", file=sys.stderr)
             print(f"   Type 'continue' to override, or refocus on: {current_focus}", file=sys.stderr)
             
-            # In a real implementation, this would wait for user input
-            # For now, we'll warn but not block to avoid hanging Claude Code
-            print(f"[FOCUS-DRIFT-GUARD-WARN] Focus process drift detected but allowing operation", file=sys.stderr)
-            return False  # Don't block to avoid API issues
+            # BLOCK the operation - focus process drift detected
+            print(f"[FOCUS-DRIFT-GUARD] BLOCKING operation due to focus process drift", file=sys.stderr)
+            return True  # BLOCK - operation drifts from current focus
         
         return False  # No drift detected
         

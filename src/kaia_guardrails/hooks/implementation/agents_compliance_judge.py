@@ -26,15 +26,32 @@ def get_project_root() -> Path:
     return Path.cwd()
 
 def load_llm_config() -> Dict[str, Any]:
-    """Load LLM configuration from pyproject.toml."""
+    """Load LLM configuration - STRICT MODE: No fallbacks, fail loudly."""
     try:
-        import tomllib
-        with open(get_project_root() / 'pyproject.toml', 'rb') as f:
-            config = tomllib.load(f)
-        return config.get('tool', {}).get('vibelint', {}).get('llm', {})
+        # Use the local config system that handles dev overrides
+        from ...local_config import get_local_config
+
+        config_loader = get_local_config()
+        kaia_config = config_loader.get_tool_config('kaia_guardrails')
+
+        # STRICT: All required config must be present
+        judge_llm_base_url = kaia_config.get('judge_llm_base_url')
+        if not judge_llm_base_url:
+            raise ValueError("REQUIRED CONFIG MISSING: 'judge_llm_base_url' not found in kaia_guardrails config")
+
+        judge_llm_model = kaia_config.get('judge_llm_model')
+        if not judge_llm_model:
+            raise ValueError("REQUIRED CONFIG MISSING: 'judge_llm_model' not found in kaia_guardrails config")
+
+        return {
+            'fast_api_url': judge_llm_base_url,
+            'fast_model': judge_llm_model,
+            'api_key': kaia_config.get('judge_api_key', ''),  # Can be empty for internal hosts
+            'timeout': kaia_config.get('timeout', 30)
+        }
     except Exception as e:
-        print(f"[AGENTS-JUDGE-ERROR] Config load failed: {e}", file=sys.stderr)
-        return {}
+        print(f"[AGENTS-JUDGE-FATAL] Configuration error: {e}", file=sys.stderr)
+        raise  # Re-raise to fail loudly
 
 def get_claude_code_context() -> Dict[str, Any]:
     """Extract Claude Code conversation context."""
@@ -108,11 +125,11 @@ Evaluate compliance and provide structured assessment. Consider:
 3. Best practices (30 points)"""
 
 def call_llm_with_guided_json(prompt: str) -> Optional[Dict[str, Any]]:
-    """Call LLM with proper guided JSON for structured output."""
-    config = load_llm_config()
+    """Call LLM with proper guided JSON for structured output - STRICT MODE."""
+    config = load_llm_config()  # Will raise exception if config missing
 
-    api_url = config.get('fast_api_url', 'https://claudiallm-auth-worker.mithran-mohanraj.workers.dev')
-    model = config.get('fast_model', 'openai/gpt-oss-20b')
+    api_url = config['fast_api_url']  # Will KeyError if missing
+    model = config['fast_model']      # Will KeyError if missing
 
     # JSON schema for compliance assessment
     json_schema = {

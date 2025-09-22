@@ -183,10 +183,17 @@ Available focus process manager methods:
 
 For safe git operations, use: git status, git log, git diff, git show
 
-EMERGENCY OVERRIDE: If you absolutely must bypass this guardrail, set:
+EMERGENCY OVERRIDE: If you absolutely must bypass this guardrail:
+
+Option 1 (Normal shell):
   export KAIA_GUARDRAILS_OVERRIDE=git_operations
   # Then run your command
   unset KAIA_GUARDRAILS_OVERRIDE
+
+Option 2 (Claude Code compatible):
+  echo "git_operations" > .claude/git_override_active
+  # Then run your git commands
+  rm .claude/git_override_active
 
 WARNING: Using the override may corrupt focus process state tracking!"""
 
@@ -194,11 +201,15 @@ WARNING: Using the override may corrupt focus process state tracking!"""
 
     def _check_for_override(self) -> bool:
         """
-        Check for environment variable override.
+        Check for environment variable override or file-based override.
+        
+        File-based override is needed for Claude Code compatibility since
+        environment variables don't persist between bash commands.
 
         Returns:
             True if override is active for git operations
         """
+        # First check environment variables (for normal shell usage)
         override_value = os.environ.get('KAIA_GUARDRAILS_OVERRIDE', '').lower()
 
         # Check for specific git operations override
@@ -209,6 +220,18 @@ WARNING: Using the override may corrupt focus process state tracking!"""
         emergency_override = os.environ.get('KAIA_EMERGENCY_OVERRIDE', '').lower()
         if emergency_override in ['true', '1', 'yes']:
             return True
+
+        # Check for file-based override (for Claude Code compatibility)
+        override_file = os.path.join(os.getcwd(), '.claude', 'git_override_active')
+        if os.path.exists(override_file):
+            try:
+                with open(override_file, 'r') as f:
+                    content = f.read().strip().lower()
+                    if content in ['git_operations', 'git', 'all', 'true']:
+                        print(f"[GIT-GUARD] File-based override detected: {override_file}")
+                        return True
+            except Exception as e:
+                print(f"[GIT-GUARD] Error reading override file {override_file}: {e}")
 
         return False
 
