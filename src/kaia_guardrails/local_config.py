@@ -5,9 +5,21 @@ Node.js-style config override system. Loads production config from pyproject.tom
 and overrides with dev.pyproject.toml when running locally.
 """
 import os
-import toml
+import sys
 from pathlib import Path
 from typing import Dict, Any, Optional
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    try:
+        import tomli as tomllib
+    except ImportError as e:
+        raise ImportError(
+            "kaia-guardrails requires Python 3.11+ or the 'tomli' package "
+            "to parse pyproject.toml on Python 3.10. "
+            f"Install tomli: pip install tomli"
+        ) from e
 
 
 class LocalConfigLoader:
@@ -34,14 +46,14 @@ class LocalConfigLoader:
             # Load production config
             prod_config = {}
             if self.prod_config_path.exists():
-                with open(self.prod_config_path, 'r') as f:
-                    prod_config = toml.load(f)
+                with open(self.prod_config_path, 'rb') as f:
+                    prod_config = tomllib.load(f)
 
             # Load dev overrides if exists
             dev_config = {}
             if self.dev_config_path.exists():
-                with open(self.dev_config_path, 'r') as f:
-                    dev_config = toml.load(f)
+                with open(self.dev_config_path, 'rb') as f:
+                    dev_config = tomllib.load(f)
                 print(f"[DEV-CONFIG] Using local development overrides from {self.dev_config_path.name}")
 
             # Merge configs (dev overrides prod)
