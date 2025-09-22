@@ -1,20 +1,11 @@
 """
-Kaia Guardrails - Core command execution analytics and guardrails system
+Kaia-Guardrails: Claude Code Protection and Orchestration System
+
+Provides:
+- Memory-enhanced learning from Claude Code interactions
+- Project-specific judge model development
+- Autonomous orchestration with vibelint integration
+- Guardrails against repetitive failures and violations
 """
 
 __version__ = "0.1.0"
-__author__ = "Kaia Development Team"
-__email__ = "dev@kaia.ai"
-
-from .analytics import CommandAnalytics, KaiaAnalyticsCollector
-from .interceptor import CommandInterceptor  
-from .classifier import RiskClassifier
-from .llm_client import LLMClient
-
-__all__ = [
-    "CommandAnalytics",
-    "KaiaAnalyticsCollector", 
-    "CommandInterceptor",
-    "RiskClassifier",
-    "LLMClient",
-]
