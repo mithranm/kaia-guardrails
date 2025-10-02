@@ -82,7 +82,7 @@ Does this action align with the stated focus? Consider:
                 content=prompt,
                 max_tokens=50,
                 temperature=0.1,  # Low temp for consistent decisions
-                structured_output={"json_schema": {"schema": schema}}
+                structured_output={"json_schema": {"name": "focus_check", "schema": schema}}
             )
 
             response = client.process_request_sync(request)
