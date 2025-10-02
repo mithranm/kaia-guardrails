@@ -105,8 +105,9 @@ def _discover_filesystem(hooks_dir: str) -> list[DiscoveredHook]:
     return discovered
 
 
-def discover_hooks(builtin_package: str = "kaia_guardrails.hooks",
-                   hooks_dir: str | None = None) -> list[DiscoveredHook]:
+def discover_hooks(
+    builtin_package: str = "kaia_guardrails.hooks", hooks_dir: str | None = None
+) -> list[DiscoveredHook]:
     """Discover hooks from builtin package, entry points, and an optional hooks_dir.
 
     Returns a list of DiscoveredHook sorted by priority.
@@ -127,6 +128,7 @@ def discover_hooks(builtin_package: str = "kaia_guardrails.hooks",
         if not existing:
             by_name[key] = h
             continue
+
         # compare source priority
         def src_priority(src: str) -> int:
             s = src.split(":", 1)[0]
@@ -141,7 +143,9 @@ def discover_hooks(builtin_package: str = "kaia_guardrails.hooks",
     return discovered_list
 
 
-def load_hook_by_name(name: str, builtin_package: str = "kaia_guardrails.hooks", hooks_dir: str | None = None) -> DiscoveredHook | None:
+def load_hook_by_name(
+    name: str, builtin_package: str = "kaia_guardrails.hooks", hooks_dir: str | None = None
+) -> DiscoveredHook | None:
     for h in discover_hooks(builtin_package=builtin_package, hooks_dir=hooks_dir):
         if h.name == name:
             return h

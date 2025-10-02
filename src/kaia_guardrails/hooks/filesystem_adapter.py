@@ -4,6 +4,7 @@ This module provides a convenience factory `wrap_script_as_hook` that will
 import a python file by path and create a HookBase-compatible wrapper around
 an exported `run(context)` function or `main` callable.
 """
+
 from __future__ import annotations
 
 import importlib.util

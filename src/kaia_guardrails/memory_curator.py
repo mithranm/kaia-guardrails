@@ -9,44 +9,46 @@ Addresses the critical flaw in current memory frameworks by implementing:
 
 Uses internal network hosts to preserve CF quota.
 """
-import json
-import hashlib
-import requests
-from datetime import datetime, timedelta
-from pathlib import Path
-from typing import Dict, Any, List, Optional, Tuple, Set
-from dataclasses import dataclass, asdict
-from collections import defaultdict
 
+import json
+from collections import defaultdict
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+import requests
 from local_config import get_local_config
 
 
 @dataclass
 class MemoryChunk:
     """Rich memory chunk with comprehensive metadata for EBR."""
+
     id: str
     content: str
-    embedding: List[float]
+    embedding: list[float]
     timestamp: datetime
     source_context: str
     engineering_pattern: str
     confidence_score: float
-    relevance_tags: List[str]
-    superseded_by: Optional[str] = None
-    quality_score: Optional[float] = None
-    evidence_strength: Optional[float] = None
+    relevance_tags: list[str]
+    superseded_by: str | None = None
+    quality_score: float | None = None
+    evidence_strength: float | None = None
 
     # EBR metadata
-    outcome_success: Optional[bool] = None
-    solution_effectiveness: Optional[str] = None
-    dependencies: List[str] = None
-    contradicts: List[str] = None
-    validates: List[str] = None
+    outcome_success: bool | None = None
+    solution_effectiveness: str | None = None
+    dependencies: list[str] = None
+    contradicts: list[str] = None
+    validates: list[str] = None
 
 
 @dataclass
 class DeduplicationResult:
     """Result of memory deduplication analysis."""
+
     duplicates_found: int
     outdated_removed: int
     quality_improved: int
@@ -66,9 +68,15 @@ class AdvancedMemoryCurator:
         self.collection_name = "curated_memory"
 
         # Internal network endpoints
-        self.judge_llm_url = self.config.get_tool_config('kaia_guardrails').get('judge_llm_base_url', 'http://100.94.250.88:8001')
-        self.orchestrator_llm_url = self.config.get_tool_config('vibelint').get('llm_base_url', 'http://100.72.90.85:8001')
-        self.embedding_url = self.config.get_tool_config('vibelint').get('embedding_base_url', 'http://100.72.90.85:8001')
+        self.judge_llm_url = self.config.get_tool_config("kaia_guardrails").get(
+            "judge_llm_base_url", "http://100.94.250.88:8001"
+        )
+        self.orchestrator_llm_url = self.config.get_tool_config("vibelint").get(
+            "llm_base_url", "http://100.72.90.85:8001"
+        )
+        self.embedding_url = self.config.get_tool_config("vibelint").get(
+            "embedding_base_url", "http://100.72.90.85:8001"
+        )
 
         # EBR configuration
         self.similarity_threshold = 0.85  # High threshold for deduplication
@@ -110,45 +118,47 @@ class AdvancedMemoryCurator:
             duplicates_found=len(duplicate_clusters),
             outdated_removed=outdated_removed,
             quality_improved=quality_improved,
-            evidence_consolidated=evidence_consolidated
+            evidence_consolidated=evidence_consolidated,
         )
 
-    def _load_memory_chunks(self) -> List[MemoryChunk]:
+    def _load_memory_chunks(self) -> list[MemoryChunk]:
         """Load memory chunks from Qdrant with rich metadata."""
         try:
             # Get all points from collection
             response = requests.post(
                 f"{self.qdrant_url}/collections/{self.collection_name}/points/scroll",
                 json={"limit": 1000, "with_payload": True, "with_vector": True},
-                timeout=30
+                timeout=30,
             )
 
             if response.status_code != 200:
                 print(f"[MEMORY-CURATOR-ERROR] Failed to load chunks: {response.status_code}")
                 return []
 
-            points = response.json().get('result', {}).get('points', [])
+            points = response.json().get("result", {}).get("points", [])
             memory_chunks = []
 
             for point in points:
-                payload = point.get('payload', {})
+                payload = point.get("payload", {})
                 chunk = MemoryChunk(
-                    id=point.get('id', ''),
-                    content=payload.get('content', ''),
-                    embedding=point.get('vector', []),
-                    timestamp=datetime.fromisoformat(payload.get('timestamp', datetime.now().isoformat())),
-                    source_context=payload.get('source_context', ''),
-                    engineering_pattern=payload.get('engineering_pattern', ''),
-                    confidence_score=payload.get('confidence_score', 0.5),
-                    relevance_tags=payload.get('relevance_tags', []),
-                    superseded_by=payload.get('superseded_by'),
-                    quality_score=payload.get('quality_score'),
-                    evidence_strength=payload.get('evidence_strength'),
-                    outcome_success=payload.get('outcome_success'),
-                    solution_effectiveness=payload.get('solution_effectiveness'),
-                    dependencies=payload.get('dependencies', []),
-                    contradicts=payload.get('contradicts', []),
-                    validates=payload.get('validates', [])
+                    id=point.get("id", ""),
+                    content=payload.get("content", ""),
+                    embedding=point.get("vector", []),
+                    timestamp=datetime.fromisoformat(
+                        payload.get("timestamp", datetime.now().isoformat())
+                    ),
+                    source_context=payload.get("source_context", ""),
+                    engineering_pattern=payload.get("engineering_pattern", ""),
+                    confidence_score=payload.get("confidence_score", 0.5),
+                    relevance_tags=payload.get("relevance_tags", []),
+                    superseded_by=payload.get("superseded_by"),
+                    quality_score=payload.get("quality_score"),
+                    evidence_strength=payload.get("evidence_strength"),
+                    outcome_success=payload.get("outcome_success"),
+                    solution_effectiveness=payload.get("solution_effectiveness"),
+                    dependencies=payload.get("dependencies", []),
+                    contradicts=payload.get("contradicts", []),
+                    validates=payload.get("validates", []),
                 )
                 memory_chunks.append(chunk)
 
@@ -158,7 +168,7 @@ class AdvancedMemoryCurator:
             print(f"[MEMORY-CURATOR-ERROR] Failed to load memory chunks: {e}")
             return []
 
-    def _find_semantic_duplicates(self, chunks: List[MemoryChunk]) -> List[List[MemoryChunk]]:
+    def _find_semantic_duplicates(self, chunks: list[MemoryChunk]) -> list[list[MemoryChunk]]:
         """
         Find semantic duplicates using embedding similarity + metadata correlation.
         This is where most frameworks fail - they only look at embeddings!
@@ -173,7 +183,7 @@ class AdvancedMemoryCurator:
             cluster = [chunk_a]
             processed_ids.add(chunk_a.id)
 
-            for j, chunk_b in enumerate(chunks[i+1:], i+1):
+            for j, chunk_b in enumerate(chunks[i + 1 :], i + 1):
                 if chunk_b.id in processed_ids:
                     continue
 
@@ -225,7 +235,7 @@ class AdvancedMemoryCurator:
 
         return score / total_weight if total_weight > 0 else 0.0
 
-    def _evidence_based_deduplication(self, duplicate_clusters: List[List[MemoryChunk]]) -> int:
+    def _evidence_based_deduplication(self, duplicate_clusters: list[list[MemoryChunk]]) -> int:
         """
         Evidence-based deduplication - the missing piece in current frameworks!
         Uses outcome evidence and metadata to decide which memories to keep.
@@ -248,8 +258,9 @@ class AdvancedMemoryCurator:
 
         return deduplicated_count
 
-    def _rank_chunks_by_evidence(self, chunks: List[MemoryChunk]) -> List[MemoryChunk]:
+    def _rank_chunks_by_evidence(self, chunks: list[MemoryChunk]) -> list[MemoryChunk]:
         """Rank chunks by evidence strength and outcome quality."""
+
         def evidence_score(chunk: MemoryChunk) -> float:
             score = 0.0
 
@@ -272,7 +283,7 @@ class AdvancedMemoryCurator:
 
         return sorted(chunks, key=evidence_score, reverse=True)
 
-    def _remove_outdated_information(self, chunks: List[MemoryChunk]) -> int:
+    def _remove_outdated_information(self, chunks: list[MemoryChunk]) -> int:
         """
         Use vibelint judge to identify and remove outdated information.
         This requires LLM judgment - can't be done with simple rules.
@@ -281,7 +292,7 @@ class AdvancedMemoryCurator:
         batch_size = 10  # Process in batches to avoid overwhelming the LLM
 
         for i in range(0, len(chunks), batch_size):
-            batch = chunks[i:i + batch_size]
+            batch = chunks[i : i + batch_size]
             outdated_chunks = self._judge_outdated_batch(batch)
 
             for chunk_id in outdated_chunks:
@@ -293,18 +304,18 @@ class AdvancedMemoryCurator:
 
         return removed_count
 
-    def _judge_outdated_batch(self, chunks: List[MemoryChunk]) -> List[str]:
+    def _judge_outdated_batch(self, chunks: list[MemoryChunk]) -> list[str]:
         """Use vibelint judge to determine which chunks are outdated."""
         try:
             # Prepare context for judge
             chunk_summaries = []
             for chunk in chunks:
                 summary = {
-                    'id': chunk.id,
-                    'content_preview': chunk.content[:200],
-                    'timestamp': chunk.timestamp.isoformat(),
-                    'pattern': chunk.engineering_pattern,
-                    'outcome': chunk.outcome_success
+                    "id": chunk.id,
+                    "content_preview": chunk.content[:200],
+                    "timestamp": chunk.timestamp.isoformat(),
+                    "pattern": chunk.engineering_pattern,
+                    "outcome": chunk.outcome_success,
                 }
                 chunk_summaries.append(summary)
 
@@ -325,19 +336,21 @@ Return ONLY a JSON array of chunk IDs to remove: ["id1", "id2", ...]
                 "messages": [{"role": "user", "content": prompt}],
                 "model": "claude-3-5-sonnet-20241022",
                 "max_tokens": 300,
-                "temperature": 0.1
+                "temperature": 0.1,
             }
 
             response = requests.post(
                 f"{self.judge_llm_url}/v1/chat/completions",
                 json=payload,
                 headers={"Content-Type": "application/json"},
-                timeout=20
+                timeout=20,
             )
 
             if response.status_code == 200:
                 data = response.json()
-                judge_response = data.get('choices', [{}])[0].get('message', {}).get('content', '[]')
+                judge_response = (
+                    data.get("choices", [{}])[0].get("message", {}).get("content", "[]")
+                )
                 return json.loads(judge_response)
 
         except Exception as e:
@@ -345,7 +358,7 @@ Return ONLY a JSON array of chunk IDs to remove: ["id1", "id2", ...]
 
         return []
 
-    def _assess_and_improve_quality(self, chunks: List[MemoryChunk]) -> int:
+    def _assess_and_improve_quality(self, chunks: list[MemoryChunk]) -> int:
         """Use orchestrator LLM to assess and improve memory quality."""
         improved_count = 0
 
@@ -353,17 +366,19 @@ Return ONLY a JSON array of chunk IDs to remove: ["id1", "id2", ...]
             if chunk.quality_score is None or chunk.quality_score < self.quality_threshold:
                 quality_assessment = self._assess_chunk_quality(chunk)
 
-                if quality_assessment['improved']:
-                    chunk.quality_score = quality_assessment['score']
-                    chunk.content = quality_assessment.get('improved_content', chunk.content)
-                    chunk.relevance_tags = quality_assessment.get('improved_tags', chunk.relevance_tags)
+                if quality_assessment["improved"]:
+                    chunk.quality_score = quality_assessment["score"]
+                    chunk.content = quality_assessment.get("improved_content", chunk.content)
+                    chunk.relevance_tags = quality_assessment.get(
+                        "improved_tags", chunk.relevance_tags
+                    )
 
                     self._update_chunk_in_qdrant(chunk)
                     improved_count += 1
 
         return improved_count
 
-    def _assess_chunk_quality(self, chunk: MemoryChunk) -> Dict[str, Any]:
+    def _assess_chunk_quality(self, chunk: MemoryChunk) -> dict[str, Any]:
         """Assess and potentially improve chunk quality using orchestrator LLM."""
         try:
             prompt = f"""
@@ -395,27 +410,27 @@ Return JSON:
                 "messages": [{"role": "user", "content": prompt}],
                 "model": "claude-3-5-sonnet-20241022",
                 "max_tokens": 500,
-                "temperature": 0.2
+                "temperature": 0.2,
             }
 
             response = requests.post(
                 f"{self.orchestrator_llm_url}/v1/chat/completions",
                 json=payload,
                 headers={"Content-Type": "application/json"},
-                timeout=25
+                timeout=25,
             )
 
             if response.status_code == 200:
                 data = response.json()
-                assessment = data.get('choices', [{}])[0].get('message', {}).get('content', '{}')
+                assessment = data.get("choices", [{}])[0].get("message", {}).get("content", "{}")
                 return json.loads(assessment)
 
         except Exception as e:
             print(f"[MEMORY-CURATOR-ERROR] Failed to assess chunk quality: {e}")
 
-        return {'improved': False, 'score': chunk.quality_score or 0.5}
+        return {"improved": False, "score": chunk.quality_score or 0.5}
 
-    def _consolidate_evidence(self, chunks: List[MemoryChunk]) -> int:
+    def _consolidate_evidence(self, chunks: list[MemoryChunk]) -> int:
         """Consolidate evidence across related chunks."""
         consolidated_count = 0
         pattern_groups = defaultdict(list)
@@ -431,7 +446,7 @@ Return JSON:
 
         return consolidated_count
 
-    def _consolidate_pattern_evidence(self, chunks: List[MemoryChunk]) -> int:
+    def _consolidate_pattern_evidence(self, chunks: list[MemoryChunk]) -> int:
         """Consolidate evidence for chunks with the same engineering pattern."""
         # Find validation and contradiction relationships
         for chunk_a in chunks:
@@ -439,11 +454,11 @@ Return JSON:
                 if chunk_a.id != chunk_b.id:
                     relationship = self._analyze_chunk_relationship(chunk_a, chunk_b)
 
-                    if relationship == 'validates':
+                    if relationship == "validates":
                         if chunk_b.id not in chunk_a.validates:
                             chunk_a.validates.append(chunk_b.id)
                             self._update_chunk_in_qdrant(chunk_a)
-                    elif relationship == 'contradicts':
+                    elif relationship == "contradicts":
                         if chunk_b.id not in chunk_a.contradicts:
                             chunk_a.contradicts.append(chunk_b.id)
                             self._update_chunk_in_qdrant(chunk_a)
@@ -453,23 +468,29 @@ Return JSON:
     def _analyze_chunk_relationship(self, chunk_a: MemoryChunk, chunk_b: MemoryChunk) -> str:
         """Analyze relationship between two chunks (validates/contradicts/neutral)."""
         # This could be enhanced with LLM analysis, but for now use simple heuristics
-        if (chunk_a.outcome_success and chunk_b.outcome_success and
-            chunk_a.engineering_pattern == chunk_b.engineering_pattern):
-            return 'validates'
-        elif (chunk_a.outcome_success and not chunk_b.outcome_success and
-              chunk_a.engineering_pattern == chunk_b.engineering_pattern):
-            return 'contradicts'
+        if (
+            chunk_a.outcome_success
+            and chunk_b.outcome_success
+            and chunk_a.engineering_pattern == chunk_b.engineering_pattern
+        ):
+            return "validates"
+        elif (
+            chunk_a.outcome_success
+            and not chunk_b.outcome_success
+            and chunk_a.engineering_pattern == chunk_b.engineering_pattern
+        ):
+            return "contradicts"
         else:
-            return 'neutral'
+            return "neutral"
 
-    def _cosine_similarity(self, vec_a: List[float], vec_b: List[float]) -> float:
+    def _cosine_similarity(self, vec_a: list[float], vec_b: list[float]) -> float:
         """Calculate cosine similarity between two vectors."""
         if not vec_a or not vec_b or len(vec_a) != len(vec_b):
             return 0.0
 
         import math
 
-        dot_product = sum(a * b for a, b in zip(vec_a, vec_b))
+        dot_product = sum(a * b for a, b in zip(vec_a, vec_b, strict=False))
         magnitude_a = math.sqrt(sum(a * a for a in vec_a))
         magnitude_b = math.sqrt(sum(b * b for b in vec_b))
 
@@ -482,36 +503,34 @@ Return JSON:
         """Update chunk in Qdrant with new metadata."""
         try:
             payload_data = {
-                'content': chunk.content,
-                'timestamp': chunk.timestamp.isoformat(),
-                'source_context': chunk.source_context,
-                'engineering_pattern': chunk.engineering_pattern,
-                'confidence_score': chunk.confidence_score,
-                'relevance_tags': chunk.relevance_tags,
-                'superseded_by': chunk.superseded_by,
-                'quality_score': chunk.quality_score,
-                'evidence_strength': chunk.evidence_strength,
-                'outcome_success': chunk.outcome_success,
-                'solution_effectiveness': chunk.solution_effectiveness,
-                'dependencies': chunk.dependencies or [],
-                'contradicts': chunk.contradicts or [],
-                'validates': chunk.validates or []
+                "content": chunk.content,
+                "timestamp": chunk.timestamp.isoformat(),
+                "source_context": chunk.source_context,
+                "engineering_pattern": chunk.engineering_pattern,
+                "confidence_score": chunk.confidence_score,
+                "relevance_tags": chunk.relevance_tags,
+                "superseded_by": chunk.superseded_by,
+                "quality_score": chunk.quality_score,
+                "evidence_strength": chunk.evidence_strength,
+                "outcome_success": chunk.outcome_success,
+                "solution_effectiveness": chunk.solution_effectiveness,
+                "dependencies": chunk.dependencies or [],
+                "contradicts": chunk.contradicts or [],
+                "validates": chunk.validates or [],
             }
 
-            point = {
-                "id": chunk.id,
-                "vector": chunk.embedding,
-                "payload": payload_data
-            }
+            point = {"id": chunk.id, "vector": chunk.embedding, "payload": payload_data}
 
             response = requests.put(
                 f"{self.qdrant_url}/collections/{self.collection_name}/points",
                 json={"points": [point]},
-                timeout=10
+                timeout=10,
             )
 
             if response.status_code not in [200, 201]:
-                print(f"[MEMORY-CURATOR-ERROR] Failed to update chunk {chunk.id}: {response.status_code}")
+                print(
+                    f"[MEMORY-CURATOR-ERROR] Failed to update chunk {chunk.id}: {response.status_code}"
+                )
 
         except Exception as e:
             print(f"[MEMORY-CURATOR-ERROR] Failed to update chunk: {e}")
@@ -522,11 +541,13 @@ Return JSON:
             response = requests.post(
                 f"{self.qdrant_url}/collections/{self.collection_name}/points/delete",
                 json={"points": [chunk_id]},
-                timeout=10
+                timeout=10,
             )
 
             if response.status_code not in [200, 201]:
-                print(f"[MEMORY-CURATOR-ERROR] Failed to remove chunk {chunk_id}: {response.status_code}")
+                print(
+                    f"[MEMORY-CURATOR-ERROR] Failed to remove chunk {chunk_id}: {response.status_code}"
+                )
 
         except Exception as e:
             print(f"[MEMORY-CURATOR-ERROR] Failed to remove chunk: {e}")
@@ -536,8 +557,8 @@ def main():
     """Run memory curation for the project."""
     import argparse
 
-    parser = argparse.ArgumentParser(description='Advanced Memory Curator with EBR')
-    parser.add_argument('--project-root', type=str, help='Project root directory')
+    parser = argparse.ArgumentParser(description="Advanced Memory Curator with EBR")
+    parser.add_argument("--project-root", type=str, help="Project root directory")
     args = parser.parse_args()
 
     project_root = Path(args.project_root) if args.project_root else Path.cwd()
@@ -545,7 +566,8 @@ def main():
     curator = AdvancedMemoryCurator(project_root)
     result = curator.curate_memory_collection()
 
-    print(f"""
+    print(
+        f"""
 [MEMORY-CURATOR] Curation Complete!
 
 Results:
@@ -555,7 +577,8 @@ Results:
 - Evidence consolidations: {result.evidence_consolidated}
 
 Memory collection is now optimized with EBR!
-""")
+"""
+    )
 
 
 if __name__ == "__main__":

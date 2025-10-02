@@ -4,9 +4,10 @@ LLM Judge Utility
 Simple yes/no LLM judgments for guardrails using vibelint's fast LLM configuration.
 Provides consistent, maintainable interface for all guardrail decisions.
 """
+
 import json
 import urllib.request
-from typing import Dict, Any
+
 from .hooks.fast_judge_util import get_fast_judge_config
 
 
@@ -31,14 +32,9 @@ def ask_llm_yesno(question: str, context: str = "") -> bool:
     # Minimal JSON schema - just yes/no
     json_schema = {
         "type": "object",
-        "properties": {
-            "answer": {
-                "type": "string",
-                "enum": ["yes", "no"]
-            }
-        },
+        "properties": {"answer": {"type": "string", "enum": ["yes", "no"]}},
         "required": ["answer"],
-        "additionalProperties": False
+        "additionalProperties": False,
     }
 
     # Simple, clear prompt
@@ -51,26 +47,26 @@ Answer only "yes" or "no" in JSON format: {{"answer": "yes"}} or {{"answer": "no
 
     try:
         data = {
-            'model': config['model'],
-            'temperature': config.get('temperature', 0.0),  # Zero temp for consistent decisions
-            'max_tokens': 100,  # Enough tokens for JSON response
-            'messages': [{'role': 'user', 'content': prompt}],
-            'guided_json': json_schema
+            "model": config["model"],
+            "temperature": config.get("temperature", 0.0),  # Zero temp for consistent decisions
+            "max_tokens": 100,  # Enough tokens for JSON response
+            "messages": [{"role": "user", "content": prompt}],
+            "guided_json": json_schema,
         }
 
         req = urllib.request.Request(
             f"{config['api_url']}/v1/chat/completions",
-            data=json.dumps(data).encode('utf-8'),
-            headers={'Content-Type': 'application/json'}
+            data=json.dumps(data).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
         )
 
-        with urllib.request.urlopen(req, timeout=config.get('timeout', 15)) as response:
-            result = json.loads(response.read().decode('utf-8'))
+        with urllib.request.urlopen(req, timeout=config.get("timeout", 15)) as response:
+            result = json.loads(response.read().decode("utf-8"))
 
-            if 'choices' in result and len(result['choices']) > 0:
-                choice = result['choices'][0]
-                content = choice['message'].get('content')
-                reasoning = choice['message'].get('reasoning_content')
+            if "choices" in result and len(result["choices"]) > 0:
+                choice = result["choices"][0]
+                content = choice["message"].get("content")
+                reasoning = choice["message"].get("reasoning_content")
 
                 # Log thinking tokens if available
                 if reasoning:
@@ -79,15 +75,15 @@ Answer only "yes" or "no" in JSON format: {{"answer": "yes"}} or {{"answer": "no
                 if content:
                     try:
                         judgment = json.loads(content)
-                        answer_str = judgment.get('answer', 'no')
+                        answer_str = judgment.get("answer", "no")
 
-                        if answer_str not in ['yes', 'no']:
+                        if answer_str not in ["yes", "no"]:
                             raise Exception(f"LLM returned invalid answer: {answer_str}")
 
                         # Log the decision
                         print(f"[LLM-JUDGE-DECISION] Question: {question[:100]}... -> {answer_str}")
 
-                        return answer_str == 'yes'
+                        return answer_str == "yes"
 
                     except json.JSONDecodeError as e:
                         raise Exception(f"Failed to parse LLM JSON response: {content}") from e

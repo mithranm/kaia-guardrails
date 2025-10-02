@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .base import HookError
-from .loader import discover_hooks, DiscoveredHook
+from .loader import DiscoveredHook, discover_hooks
 
 logger = logging.getLogger(__name__)
 
