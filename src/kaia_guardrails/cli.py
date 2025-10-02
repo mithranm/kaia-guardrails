@@ -136,29 +136,37 @@ except Exception as e:
     if "hooks" not in settings:
         settings["hooks"] = {}
 
-    # Register on UserPromptSubmit event (runs when user submits a message)
-    if "UserPromptSubmit" not in settings["hooks"]:
-        settings["hooks"]["UserPromptSubmit"] = []
-
-    # Check if orchestrator already registered
     orchestrator_cmd = str(hooks_dir / "orchestrator")
-    already_registered = any(
-        hook.get("command") == orchestrator_cmd
-        for hook_group in settings["hooks"].get("UserPromptSubmit", [])
-        for hook in hook_group.get("hooks", [])
-    )
 
-    if not already_registered:
-        settings["hooks"]["UserPromptSubmit"].append({
-            "hooks": [
-                {
-                    "type": "command",
-                    "command": orchestrator_cmd,
-                    "timeout": 30
-                }
-            ]
-        })
-        print(f"  ✅ Registered orchestrator for UserPromptSubmit event")
+    # Register on multiple events
+    hook_events = {
+        "PreToolUse": 10,      # Short timeout, runs before every tool
+        "PostToolUse": 30,     # Longer timeout, validation after tools
+        "UserPromptSubmit": 30 # Runs when user submits message
+    }
+
+    for event_name, timeout in hook_events.items():
+        if event_name not in settings["hooks"]:
+            settings["hooks"][event_name] = []
+
+        # Check if orchestrator already registered for this event
+        already_registered = any(
+            hook.get("command") == orchestrator_cmd
+            for hook_group in settings["hooks"].get(event_name, [])
+            for hook in hook_group.get("hooks", [])
+        )
+
+        if not already_registered:
+            settings["hooks"][event_name].append({
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": orchestrator_cmd,
+                        "timeout": timeout
+                    }
+                ]
+            })
+            print(f"  ✅ Registered orchestrator for {event_name}")
 
     # Prompt for LLM configuration if not set
     if not settings.get("env", {}).get("KAIA_JUDGE_LLM_URL"):

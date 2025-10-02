@@ -106,7 +106,7 @@ def _discover_filesystem(hooks_dir: str) -> list[DiscoveredHook]:
 
 
 def discover_hooks(
-    builtin_package: str = "kaia_guardrails.hooks", hooks_dir: str | None = None
+    builtin_package: str = "kaia_guardrails.hooks.implementation", hooks_dir: str | None = None
 ) -> list[DiscoveredHook]:
     """Discover hooks from builtin package, entry points, and an optional hooks_dir.
 
@@ -144,7 +144,7 @@ def discover_hooks(
 
 
 def load_hook_by_name(
-    name: str, builtin_package: str = "kaia_guardrails.hooks", hooks_dir: str | None = None
+    name: str, builtin_package: str = "kaia_guardrails.hooks.implementation", hooks_dir: str | None = None
 ) -> DiscoveredHook | None:
     for h in discover_hooks(builtin_package=builtin_package, hooks_dir=hooks_dir):
         if h.name == name:
