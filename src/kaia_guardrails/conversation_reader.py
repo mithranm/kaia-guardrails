@@ -166,19 +166,26 @@ class ConversationReader:
                         session_info["git_branch"] = entry["gitBranch"]
 
                     # Extract messages
-                    if entry.get("type") == "message":
+                    entry_type = entry.get("type")
+                    if entry_type in ("user", "assistant"):
                         message_data = entry["message"]
                         role = message_data["role"]
 
-                        # Extract text content
+                        # Extract text content - can be string or array
+                        content = message_data.get("content", "")
                         text_parts = []
                         tool_uses = []
 
-                        for content_block in message_data.get("content", []):
-                            if content_block["type"] == "text":
-                                text_parts.append(content_block["text"])
-                            elif content_block["type"] == "tool_use":
-                                tool_uses.append(content_block)
+                        if isinstance(content, str):
+                            # Simple string content
+                            text_parts = [content]
+                        elif isinstance(content, list):
+                            # Array of content blocks
+                            for content_block in content:
+                                if content_block.get("type") == "text":
+                                    text_parts.append(content_block["text"])
+                                elif content_block.get("type") == "tool_use":
+                                    tool_uses.append(content_block)
 
                         messages.append(
                             Message(
@@ -187,7 +194,7 @@ class ConversationReader:
                                 timestamp=datetime.fromisoformat(
                                     entry["timestamp"].replace("Z", "+00:00")
                                 ),
-                                message_id=message_data["id"],
+                                message_id=message_data.get("id", entry["uuid"]),
                                 tool_uses=tool_uses,
                             )
                         )

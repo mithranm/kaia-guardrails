@@ -76,9 +76,32 @@ class FocusAlignmentHook(HookBase):
 
         # Use vibelint LLM with structured output
         try:
+            import json
+            from dataclasses import asdict
+
             from vibelint.llm_client import LLMClient, LLMRequest
 
             client = LLMClient()
+
+            # Set up JSONL logging for all LLM calls
+            log_dir = project_root / ".kaia-guardrails"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            log_file = log_dir / "focus-alignment-llm.jsonl"
+
+            def log_callback(log_entry):
+                """Write log entry to JSONL file."""
+                try:
+                    log_dict = (
+                        asdict(log_entry)
+                        if hasattr(log_entry, "__dataclass_fields__")
+                        else log_entry
+                    )
+                    with open(log_file, "a") as f:
+                        f.write(json.dumps(log_dict) + "\n")
+                except Exception as e:
+                    print(f"Failed to write LLM log: {e}", file=sys.stderr)
+
+            client.set_log_callback(log_callback)
 
             # Get Pydantic schema
             json_schema = FocusCheck.model_json_schema()
