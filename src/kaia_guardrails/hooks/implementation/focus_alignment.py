@@ -192,10 +192,13 @@ Does this align with focus AND comply with AGENTS? Respond "aligned" or "not_ali
                 response = client.process_request_sync(full_request)
 
             # Log full request/response for finetuning (not just preview)
+            # Determine which prompt was actually used (fast or full)
+            actual_prompt = full_prompt if fast_status == "needs_context" else fast_prompt
             full_log = {
+                "phase": "full" if fast_status == "needs_context" else "fast",
                 "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-                "request_content": prompt,  # Full prompt
-                "request_tokens_estimate": len(prompt) // 3,  # 3 chars = 1 token
+                "request_content": actual_prompt,  # Full prompt
+                "request_tokens_estimate": len(actual_prompt) // 3,  # 3 chars = 1 token
                 "response_content": response.content,  # Full response
                 "response_reasoning": response.reasoning_content,  # Thinking tokens
                 "llm_used": response.llm_used,
