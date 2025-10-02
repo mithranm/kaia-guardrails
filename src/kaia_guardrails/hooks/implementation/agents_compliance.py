@@ -4,30 +4,29 @@ import os
 import sys
 from pathlib import Path
 
+from ...utils import find_agents_files, read_all_agents_content
 from ..base import HookBase
 
 
 class AgentsComplianceHook(HookBase):
-    """Checks compliance with AGENTS.md guidelines."""
+    """Checks compliance with AGENTS.*.md guidelines."""
 
     def __init__(self):
         super().__init__(name="agents_compliance", priority=40)
 
     def run(self, context: dict) -> dict:
-        """Check compliance with AGENTS.md."""
+        """Check compliance with AGENTS.*.md files."""
         project_root = Path(context.get("project_root", Path.cwd()))
-        agents_file = project_root / "AGENTS.instructions.md"
+        agents_files = find_agents_files(project_root)
 
-        if not agents_file.exists():
-            return {"status": "skipped", "reason": "no AGENTS.instructions.md"}
+        if not agents_files:
+            return {"status": "skipped", "reason": "no AGENTS.*.md files"}
 
         # Basic checks
         violations = []
 
-        # Check if using conda/venv (optional - projects may specify required env in AGENTS.md)
-        # Parse AGENTS.md for environment requirements
-        with open(agents_file) as f:
-            agents_content = f.read()
+        # Read all AGENTS.*.md content
+        agents_content = read_all_agents_content(project_root)
 
         # Look for environment requirement in AGENTS.md
         if "conda" in agents_content.lower() or "environment" in agents_content.lower():
@@ -41,13 +40,12 @@ class AgentsComplianceHook(HookBase):
         if not str(cwd).startswith(str(project_root)):
             violations.append(f"Working outside project directory: {cwd}")
 
-        # Check for emoji usage (common AGENTS.md rule)
+        # Check for emoji usage (common AGENTS.*.md rule)
         tool_input = os.environ.get("CLAUDE_TOOL_INPUT", "")
         if any(ord(c) > 127 for c in tool_input):  # Basic emoji detection
-            # Check if AGENTS.md prohibits emoji
-            with open(agents_file) as f:
-                if "no emoji" in f.read().lower():
-                    violations.append("Emoji usage detected (prohibited by AGENTS.md)")
+            # Check if any AGENTS file prohibits emoji
+            if "no emoji" in agents_content.lower():
+                violations.append("Emoji usage detected (prohibited by AGENTS.*.md)")
 
         if violations:
             print("⚠️ AGENTS.md compliance issues:", file=sys.stderr)
