@@ -65,7 +65,8 @@ def install_command(args):
     kaia_pkg_path = Path(__file__).parent.parent.parent  # Go up to package root
 
     # Create orchestrator script that calls kaia-guardrails hooks
-    orchestrator_content = f'''#!/usr/bin/env python3
+    # Use #!/usr/bin/env python3 to find python in PATH (works across systems)
+    orchestrator_content = '''#!/usr/bin/env python3
 """
 Orchestrator hook for kaia-guardrails.
 
@@ -76,7 +77,6 @@ so you get updates automatically when you update kaia-guardrails.
 import sys
 from pathlib import Path
 
-# Add kaia-guardrails to Python path if not already installed
 project_root = Path(__file__).resolve().parents[1]
 
 try:
@@ -85,10 +85,10 @@ try:
     # Run hooks from kaia-guardrails package (not copied locally)
     orchestrator = Orchestrator()
 
-    context = {{
+    context = {
         "project_root": str(project_root),
         "working_directory": str(Path.cwd()),
-    }}
+    }
 
     results = orchestrator.run_all(initial_context=context)
 
@@ -101,17 +101,17 @@ try:
     if critical_failures:
         print("❌ Critical guardrail hooks failed:", file=sys.stderr)
         for hook_name, result in critical_failures:
-            print(f"  - {{hook_name}}: {{result.get('error', 'Unknown error')}}", file=sys.stderr)
+            print(f"  - {hook_name}: {result.get('error', 'Unknown error')}", file=sys.stderr)
         sys.exit(1)
 
     print("✅ Kaia-guardrails hooks completed successfully")
 
 except ImportError as e:
-    print(f"❌ Failed to import kaia-guardrails: {{e}}", file=sys.stderr)
+    print(f"❌ Failed to import kaia-guardrails: {e}", file=sys.stderr)
     print("Install with: pip install kaia-guardrails", file=sys.stderr)
     sys.exit(1)
 except Exception as e:
-    print(f"❌ Orchestrator failed: {{e}}", file=sys.stderr)
+    print(f"❌ Orchestrator failed: {e}", file=sys.stderr)
     import traceback
     traceback.print_exc()
     sys.exit(1)

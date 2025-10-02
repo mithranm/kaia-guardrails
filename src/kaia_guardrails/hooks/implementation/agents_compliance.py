@@ -24,10 +24,17 @@ class AgentsComplianceHook(HookBase):
         # Basic checks
         violations = []
 
-        # Check conda environment
-        python_path = sys.executable
-        if "mcp-unified" not in python_path:
-            violations.append("Not using mcp-unified conda environment")
+        # Check if using conda/venv (optional - projects may specify required env in AGENTS.md)
+        # Parse AGENTS.md for environment requirements
+        with open(agents_file) as f:
+            agents_content = f.read()
+
+        # Look for environment requirement in AGENTS.md
+        if "conda" in agents_content.lower() or "environment" in agents_content.lower():
+            # Check if we're in any conda env
+            python_path = sys.executable
+            if "conda" not in python_path and "envs" not in python_path:
+                violations.append("Not using a conda environment (required by AGENTS.md)")
 
         # Check working directory
         cwd = Path.cwd()
