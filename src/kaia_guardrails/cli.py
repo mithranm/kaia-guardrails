@@ -2,48 +2,13 @@
 """
 Kaia Guardrails CLI Tools
 
-Command-line interface for kaia-guardrails audit and management tools.
+Command-line interface for kaia-guardrails focus tracking installation.
 """
 
 import argparse
 import json
-import shutil
 import sys
 from pathlib import Path
-
-from .audit_viewer import AuditLogViewer
-
-
-def get_default_hook_config():
-    """Get default hook configuration for settings.local.json."""
-    return {
-        "enabled": True,
-        "implementations": {
-            "post_edit_vibelint_check": {
-                "enabled": True,
-                "priority": 50,
-                "config": {"block_on_critical": True, "auto_fix": False},
-            },
-            "agents_compliance_judge": {
-                "enabled": True,
-                "priority": 40,
-                "config": {
-                    "llm_endpoint": "${KAIA_JUDGE_LLM_URL}",
-                    "llm_model": "${KAIA_JUDGE_LLM_MODEL}",
-                },
-            },
-            "file_insertion_validator": {"enabled": True, "priority": 60},
-            "git_operations_guard": {
-                "enabled": True,
-                "priority": 30,
-                "config": {
-                    "block_force_push": True,
-                    "require_approval_for": ["push", "force-push", "rebase"],
-                },
-            },
-            "pre_edit_validation": {"enabled": True, "priority": 10},
-        },
-    }
 
 
 def install_command(args):
@@ -168,23 +133,6 @@ except Exception as e:
             })
             print(f"  ✅ Registered orchestrator for {event_name}")
 
-    # Prompt for LLM configuration if not set
-    if not settings.get("env", {}).get("KAIA_JUDGE_LLM_URL"):
-        print("\n🤖 LLM Configuration (for agents_compliance_judge hook)")
-        llm_url = (
-            input("  LLM API URL [http://localhost:8000]: ").strip()
-            or "http://localhost:8000"
-        )
-        llm_model = (
-            input("  LLM Model [Qwen/Qwen2.5-7B-Instruct]: ").strip()
-            or "Qwen/Qwen2.5-7B-Instruct"
-        )
-
-        if "env" not in settings:
-            settings["env"] = {}
-        settings["env"]["KAIA_JUDGE_LLM_URL"] = llm_url
-        settings["env"]["KAIA_JUDGE_LLM_MODEL"] = llm_model
-
     with open(settings_file, "w") as f:
         json.dump(settings, f, indent=2)
     print(f"  ✅ Updated {settings_file.name}")
@@ -217,42 +165,16 @@ except Exception as e:
 
     print("\n✅ Installation complete!")
     print("\n📋 Next steps:")
-    print("  1. Review .claude/settings.local.json")
-    print("  2. For Python projects: ensure vibelint is installed and configured")
-    print("  3. Restart Claude Code to load hooks")
-
-
-def audit_command(args):
-    """Handle the audit subcommand."""
-    log_dir = Path(args.log_dir) if args.log_dir else None
-    project_root = Path(args.project_root) if args.project_root else None
-    viewer = AuditLogViewer(log_dir=log_dir, project_root=project_root)
-
-    print("🔍 Loading kaia-guardrails logs...")
-    entries = viewer.load_logs(args.date)
-
-    if not entries:
-        print("❌ No log entries found.")
-        sys.exit(1)
-
-    print(f"📊 Analyzing {len(entries)} log entries...")
-    analysis = viewer.analyze_decision_patterns(entries, args.hours)
-
-    print("📋 Generating audit report...")
-    report = viewer.generate_audit_report(analysis, args.verbose)
-
-    print(report)
-
-    # Save report if requested
-    if args.save:
-        output_path = viewer.save_report(report, args.save)
-        print(f"\n📄 Report saved to: {output_path}")
+    print("  1. Create .claude/current-focus.txt with your current task")
+    print("  2. Review .claude/settings.local.json")
+    print("  3. For Python projects: ensure vibelint is installed and configured")
+    print("  4. Restart Claude Code to load hooks")
 
 
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
-        description="Kaia Guardrails CLI Tools",
+        description="Kaia Guardrails - Focus tracking for Claude Code",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
@@ -260,24 +182,12 @@ def main():
 
     # Install command
     install_parser = subparsers.add_parser(
-        "install", help="Install kaia-guardrails hooks into a project"
+        "install", help="Install kaia-guardrails focus tracking hooks"
     )
     install_parser.add_argument(
         "project_root", nargs="?", help="Project root directory (default: current directory)"
     )
     install_parser.set_defaults(func=install_command)
-
-    # Audit command
-    audit_parser = subparsers.add_parser("audit", help="Generate audit report from logs")
-    audit_parser.add_argument("--date", help="Filter logs for specific date (YYYY-MM-DD)")
-    audit_parser.add_argument(
-        "--hours", type=int, default=24, help="Time window in hours (default: 24)"
-    )
-    audit_parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
-    audit_parser.add_argument("--save", "-s", help="Save report to file")
-    audit_parser.add_argument("--log-dir", help="Custom log directory path")
-    audit_parser.add_argument("--project-root", help="Project root directory to search for logs")
-    audit_parser.set_defaults(func=audit_command)
 
     # Parse arguments
     args = parser.parse_args()
