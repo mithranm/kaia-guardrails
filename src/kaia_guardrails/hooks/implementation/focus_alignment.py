@@ -88,17 +88,13 @@ Does this action align with the stated focus? Consider:
                 reasoning = response.reasoning_content or "No reasoning provided"
 
                 if not aligned:
-                    # Misalignment detected - warn user
-                    print(f"\n⚠️ FOCUS DRIFT DETECTED", file=sys.stderr)
+                    # Misalignment detected - block action
+                    print(f"\n⚠️ FOCUS DRIFT DETECTED - BLOCKING ACTION", file=sys.stderr)
                     print(f"📍 Current Focus: {current_focus}", file=sys.stderr)
                     print(f"🤔 Reasoning: {reasoning}", file=sys.stderr)
-                    print(f"💡 Consider: Is this action aligned with your stated focus?\n", file=sys.stderr)
+                    print(f"💡 To override: Update .claude/current-focus.txt or add override file\n", file=sys.stderr)
 
-                    return {
-                        "status": "warning",
-                        "aligned": False,
-                        "reasoning": reasoning
-                    }
+                    sys.exit(1)  # Block the action
 
                 return {
                     "status": "success",
