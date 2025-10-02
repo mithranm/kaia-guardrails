@@ -58,6 +58,7 @@ class FocusAlignmentHook(HookBase):
 
         # Read recent conversation history
         from ...conversation_reader import ConversationReader
+        from ...utils import read_all_agents_content
 
         reader = ConversationReader()
         session = reader.read_session()  # Gets current session
@@ -71,6 +72,10 @@ class FocusAlignmentHook(HookBase):
                 recent_messages.append(f"{role}: {content_preview}")
 
         conversation_context = "\n".join(recent_messages) if recent_messages else "No recent conversation"
+
+        # Read AGENTS.*.md files for compliance context
+        agents_content = read_all_agents_content(project_root)
+        agents_summary = agents_content[:500] if agents_content else "No AGENTS files"  # First 500 chars
 
         # Build context for LLM
         action_context = f"Hook Event: {hook_event}\n"
@@ -106,11 +111,15 @@ class FocusAlignmentHook(HookBase):
 
             prompt = f"""Current Focus: {current_focus}
 
+AGENTS Instructions (first 500 chars):
+{agents_summary}
+
 Current Action:
 {action_context}
 
-Does this action align with the stated focus? Consider:
+Does this action align with the stated focus AND comply with AGENTS instructions? Consider:
 - Is this action moving toward the focus goal?
+- Does it follow the AGENTS guidelines?
 - Is this a necessary prerequisite or distraction?
 - Would time spent on this help achieve the focus?"""
 
