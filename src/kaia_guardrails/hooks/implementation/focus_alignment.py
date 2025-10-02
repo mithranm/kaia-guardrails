@@ -47,12 +47,16 @@ class FocusAlignmentHook(HookBase):
         focus_file = project_root / ".claude" / "current-focus.txt"
         skip_file = project_root / ".claude" / "skip-focus-check"
 
+        print(f"[Focus Check] Starting check for event: {hook_event}", file=sys.stderr)
+
         # Skip if user disabled check
         if skip_file.exists():
+            print(f"[Focus Check] Skipped: check disabled by user", file=sys.stderr)
             return {"status": "skipped", "reason": "check disabled by user"}
 
         # Skip if no focus set
         if not focus_file.exists():
+            print(f"[Focus Check] Skipped: no focus file at {focus_file}", file=sys.stderr)
             return {"status": "skipped", "reason": "no focus file"}
 
         # Read current focus
@@ -60,6 +64,7 @@ class FocusAlignmentHook(HookBase):
             current_focus = f.read().strip()
 
         if not current_focus:
+            print(f"[Focus Check] Skipped: focus file empty", file=sys.stderr)
             return {"status": "skipped", "reason": "focus file empty"}
 
         # Get current action context
