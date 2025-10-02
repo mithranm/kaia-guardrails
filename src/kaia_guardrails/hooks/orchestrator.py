@@ -27,14 +27,24 @@ class Orchestrator:
 
         Returns a dict with run results for each hook.
         """
+        import os
 
         ctx: dict = initial_context or {}
         results: dict[str, Any] = {}
+        current_event = os.environ.get("CLAUDE_HOOK_EVENT_NAME", "")
+
         for d in self.list_hooks():
             hook = d.hook
             if not getattr(hook, "enabled", True):
                 results[d.name] = {"status": "skipped", "reason": "disabled"}
                 continue
+
+            # Check if hook wants to run on this event
+            hook_events = getattr(hook, "events", None)
+            if hook_events and current_event and current_event not in hook_events:
+                results[d.name] = {"status": "skipped", "reason": f"not for event {current_event}"}
+                continue
+
             try:
                 res = hook.run(ctx)
                 results[d.name] = {"status": "ok", "result": res}

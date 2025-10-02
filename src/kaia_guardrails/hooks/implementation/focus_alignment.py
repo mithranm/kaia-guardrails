@@ -21,10 +21,16 @@ class FocusAlignmentHook(HookBase):
     """Checks if current action aligns with focus using vibelint LLM."""
 
     def __init__(self):
-        super().__init__(name="focus_alignment", priority=15)
+        super().__init__(
+            name="focus_alignment",
+            priority=15,
+            events=["PreToolUse", "UserPromptSubmit"]  # Only check BEFORE actions
+        )
 
     def run(self, context: dict) -> dict:
         """Check if current action aligns with stated focus."""
+        hook_event = os.environ.get("CLAUDE_HOOK_EVENT_NAME", "")
+
         project_root = Path(context.get("project_root", Path.cwd()))
         focus_file = project_root / ".claude" / "current-focus.txt"
         skip_file = project_root / ".claude" / "skip-focus-check"
@@ -67,13 +73,19 @@ class FocusAlignmentHook(HookBase):
         conversation_context = "\n".join(recent_messages) if recent_messages else "No recent conversation"
 
         # Build context for LLM
-        action_context = f"Tool: {tool_name}\n"
+        action_context = f"Hook Event: {hook_event}\n"
+
         if user_prompt and hook_event == "UserPromptSubmit":
             action_context += f"User Request: {user_prompt}\n"
-        elif tool_input:
-            action_context += f"Action: {tool_input[:500]}\n"
+        elif tool_name:
+            action_context += f"Tool: {tool_name}\n"
+            if tool_input:
+                action_context += f"Tool Input: {tool_input[:500]}\n"
 
         action_context += f"\nRecent Conversation:\n{conversation_context}"
+
+        # Debug: Log what hook event we're processing
+        print(f"[Focus Check] Event: {hook_event}, Tool: {tool_name}", file=sys.stderr)
 
         # Use vibelint LLM with structured output
         try:

@@ -19,6 +19,7 @@ class HookBase:
     priority: int = 100
     enabled: bool = True
     params: dict[str, Any] = field(default_factory=dict)
+    events: list[str] = field(default_factory=lambda: ["PreToolUse", "PostToolUse", "UserPromptSubmit"])  # Which events this hook handles
 
     def run(self, context: dict[str, Any]) -> Any | None:
         """Execute the hook.
