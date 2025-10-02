@@ -26,6 +26,11 @@ class FocusAlignmentHook(HookBase):
         """Check if current action aligns with stated focus."""
         project_root = Path(context.get("project_root", Path.cwd()))
         focus_file = project_root / ".claude" / "current-focus.txt"
+        skip_file = project_root / ".claude" / "skip-focus-check"
+
+        # Skip if user disabled check
+        if skip_file.exists():
+            return {"status": "skipped", "reason": "check disabled by user"}
 
         # Skip if no focus set
         if not focus_file.exists():
@@ -92,7 +97,9 @@ Does this action align with the stated focus? Consider:
                     print(f"\n⚠️ FOCUS DRIFT DETECTED - BLOCKING ACTION", file=sys.stderr)
                     print(f"📍 Current Focus: {current_focus}", file=sys.stderr)
                     print(f"🤔 Reasoning: {reasoning}", file=sys.stderr)
-                    print(f"💡 To override: Update .claude/current-focus.txt or add override file\n", file=sys.stderr)
+                    print(f"\n💡 To override:", file=sys.stderr)
+                    print(f"   1. Update your focus: echo 'new focus' > .claude/current-focus.txt", file=sys.stderr)
+                    print(f"   2. Or disable check: touch .claude/skip-focus-check\n", file=sys.stderr)
 
                     sys.exit(1)  # Block the action
 
