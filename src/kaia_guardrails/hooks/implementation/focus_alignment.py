@@ -5,7 +5,15 @@ import os
 import sys
 from pathlib import Path
 
+from pydantic import BaseModel, Field
+
 from ..base import HookBase
+
+
+class FocusCheck(BaseModel):
+    """Schema for focus alignment check response."""
+
+    aligned: bool = Field(description="True if action aligns with focus, False otherwise")
 
 
 class FocusAlignmentHook(HookBase):
@@ -49,24 +57,8 @@ class FocusAlignmentHook(HookBase):
 
             client = LLMClient()
 
-            # Structured output schema for yes/no decision
-            schema = {
-                "type": "object",
-                "properties": {
-                    "aligned": {
-                        "type": "boolean",
-                        "description": "True if action aligns with focus, False otherwise"
-                    },
-                    "confidence": {
-                        "type": "number",
-                        "minimum": 0,
-                        "maximum": 1,
-                        "description": "Confidence level 0-1"
-                    }
-                },
-                "required": ["aligned", "confidence"],
-                "additionalProperties": False
-            }
+            # Get Pydantic schema
+            json_schema = FocusCheck.model_json_schema()
 
             prompt = f"""Current Focus: {current_focus}
 
@@ -80,9 +72,9 @@ Does this action align with the stated focus? Consider:
 
             request = LLMRequest(
                 content=prompt,
-                max_tokens=50,
+                max_tokens=512,  # Enough for reasoning + JSON output
                 temperature=0.1,  # Low temp for consistent decisions
-                structured_output={"json_schema": {"name": "focus_check", "schema": schema}}
+                structured_output={"json_schema": {"name": "focus_check", "schema": json_schema}}
             )
 
             response = client.process_request_sync(request)
@@ -91,13 +83,12 @@ Does this action align with the stated focus? Consider:
             try:
                 result = json.loads(response.content)
                 aligned = result.get("aligned", True)  # Default to True on parse error
-                confidence = result.get("confidence", 0.5)
 
                 # Get reasoning from thinking tokens
                 reasoning = response.reasoning_content or "No reasoning provided"
 
-                if not aligned and confidence > 0.7:
-                    # High confidence misalignment - warn user
+                if not aligned:
+                    # Misalignment detected - warn user
                     print(f"\n⚠️ FOCUS DRIFT DETECTED", file=sys.stderr)
                     print(f"📍 Current Focus: {current_focus}", file=sys.stderr)
                     print(f"🤔 Reasoning: {reasoning}", file=sys.stderr)
@@ -106,14 +97,12 @@ Does this action align with the stated focus? Consider:
                     return {
                         "status": "warning",
                         "aligned": False,
-                        "confidence": confidence,
                         "reasoning": reasoning
                     }
 
                 return {
                     "status": "success",
                     "aligned": aligned,
-                    "confidence": confidence,
                     "reasoning": reasoning
                 }
 
