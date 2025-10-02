@@ -79,11 +79,10 @@ Does this action align with the stated focus? Consider:
 - Would time spent on this help achieve the focus?"""
 
             request = LLMRequest(
-                prompt=prompt,
+                content=prompt,
                 max_tokens=50,
                 temperature=0.1,  # Low temp for consistent decisions
-                structured_output={"json_schema": {"schema": schema}},
-                model=None  # Use default from config
+                structured_output={"json_schema": {"schema": schema}}
             )
 
             response = client.process_request_sync(request)
