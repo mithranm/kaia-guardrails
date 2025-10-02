@@ -3,6 +3,7 @@
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -83,25 +84,10 @@ class FocusAlignmentHook(HookBase):
 
             client = LLMClient()
 
-            # Set up JSONL logging for all LLM calls
+            # Set up log file for full request/response (for finetuning)
             log_dir = project_root / ".kaia-guardrails"
             log_dir.mkdir(parents=True, exist_ok=True)
             log_file = log_dir / "focus-alignment-llm.jsonl"
-
-            def log_callback(log_entry):
-                """Write log entry to JSONL file."""
-                try:
-                    log_dict = (
-                        asdict(log_entry)
-                        if hasattr(log_entry, "__dataclass_fields__")
-                        else log_entry
-                    )
-                    with open(log_file, "a") as f:
-                        f.write(json.dumps(log_dict) + "\n")
-                except Exception as e:
-                    print(f"Failed to write LLM log: {e}", file=sys.stderr)
-
-            client.set_log_callback(log_callback)
 
             # Get Pydantic schema
             json_schema = FocusCheck.model_json_schema()
@@ -124,6 +110,23 @@ Does this action align with the stated focus? Consider:
             )
 
             response = client.process_request_sync(request)
+
+            # Log full request/response for finetuning (not just preview)
+            full_log = {
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "request_content": prompt,  # Full prompt
+                "request_tokens_estimate": len(prompt) // 3,  # 3 chars = 1 token
+                "response_content": response.content,  # Full response
+                "response_reasoning": response.reasoning_content,  # Thinking tokens
+                "llm_used": response.llm_used,
+                "duration_seconds": response.duration_seconds,
+                "success": response.success,
+            }
+            try:
+                with open(log_file, "a") as f:
+                    f.write(json.dumps(full_log) + "\n")
+            except Exception as e:
+                print(f"Failed to write full LLM log: {e}", file=sys.stderr)
 
             # Parse structured response
             try:
