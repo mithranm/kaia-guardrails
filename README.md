@@ -1,16 +1,17 @@
 # Kaia Guardrails
 
-Core command execution analytics and guardrails system for kaia AI agents.
+**Execution guardrails and compliance system for Claude Code workflows.**
 
-## Overview
+## Purpose
 
-Kaia Guardrails is a permanent, always-on analytics collection system that:
+Kaia Guardrails constrains and guides Claude Code behavior through hooks that:
 
-- **Analyzes every command** before execution with rich feature extraction
-- **Collects training data** for local classifier development
-- **Provides LLM-based risk assessment** with human oversight
-- **Ensures compliance** with project rules (vibelint, CLAUDE.md, etc.)
-- **Maintains complete audit trail** of all command decisions
+- **Validate code quality** - Runs vibelint checks after edits, blocks critical issues
+- **Enforce compliance** - Ensures adherence to AGENTS.md and project guidelines
+- **Guard operations** - Prevents unsafe git operations, duplicate code insertion
+- **Track progress** - Monitors tool usage and validates against project focus
+
+**What it is NOT:** A code generation or ASE orchestration system. That lives in killeraiagent.
 
 ## Features
 
