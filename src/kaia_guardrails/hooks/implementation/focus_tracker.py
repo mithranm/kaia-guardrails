@@ -1,7 +1,6 @@
-"""Simple focus tracking from AGENTS.md."""
+"""Focus tracking and management."""
 
 import os
-import re
 import sys
 from pathlib import Path
 
@@ -9,38 +8,32 @@ from ..base import HookBase
 
 
 class FocusTrackerHook(HookBase):
-    """Tracks current focus from AGENTS.md and reminds user."""
+    """Displays current focus from .claude/current-focus.txt."""
 
     def __init__(self):
         super().__init__(name="focus_tracker", priority=10)
 
     def run(self, context: dict) -> dict:
-        """Extract and display current focus from AGENTS.md."""
+        """Display current focus to user."""
         project_root = Path(context.get("project_root", Path.cwd()))
-        agents_file = project_root / "AGENTS.instructions.md"
+        focus_file = project_root / ".claude" / "current-focus.txt"
 
-        if not agents_file.exists():
-            return {"status": "skipped", "reason": "no AGENTS.instructions.md"}
+        # Only show on UserPromptSubmit (not every tool use)
+        hook_event = os.environ.get("CLAUDE_HOOK_EVENT_NAME", "")
+        if hook_event != "UserPromptSubmit":
+            return {"status": "skipped", "reason": "not UserPromptSubmit"}
 
-        # Extract focus from AGENTS.md
-        with open(agents_file) as f:
-            content = f.read()
+        if not focus_file.exists():
+            print("📍 No current focus set (create .claude/current-focus.txt)", file=sys.stderr)
+            return {"status": "warning", "focus": None}
 
-        # Look for "Current Focus:" or "**Current Focus**:" pattern
-        focus_match = re.search(
-            r"\*?\*?Current Focus\*?\*?:?\s*(.+?)(?:\n\n|$)", content, re.IGNORECASE | re.DOTALL
-        )
+        # Read and display focus
+        with open(focus_file) as f:
+            focus = f.read().strip()
 
-        if focus_match:
-            focus = focus_match.group(1).strip()
-            # Limit to first line if multiline
-            focus = focus.split("\n")[0].strip()
-
-            # Only show on UserPromptSubmit (not every tool use)
-            hook_event = os.environ.get("CLAUDE_HOOK_EVENT_NAME", "")
-            if hook_event == "UserPromptSubmit":
-                print(f"📍 Current Focus: {focus}", file=sys.stderr)
-
+        if focus:
+            print(f"📍 Current Focus: {focus}", file=sys.stderr)
             return {"status": "success", "focus": focus}
-
-        return {"status": "success", "focus": "No focus defined"}
+        else:
+            print("📍 Current focus file is empty", file=sys.stderr)
+            return {"status": "warning", "focus": None}
