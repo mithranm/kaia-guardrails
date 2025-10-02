@@ -49,12 +49,30 @@ class FocusAlignmentHook(HookBase):
         user_prompt = os.environ.get("CLAUDE_USER_PROMPT", "")
         hook_event = os.environ.get("CLAUDE_HOOK_EVENT_NAME", "")
 
+        # Read recent conversation history
+        from ...conversation_reader import ConversationReader
+
+        reader = ConversationReader()
+        session = reader.read_session()  # Gets current session
+
+        # Get last 5 messages for context (balance between context and token usage)
+        recent_messages = []
+        if session and session.messages:
+            for msg in session.messages[-5:]:
+                role = msg.role
+                content_preview = msg.content[:300] if msg.content else ""
+                recent_messages.append(f"{role}: {content_preview}")
+
+        conversation_context = "\n".join(recent_messages) if recent_messages else "No recent conversation"
+
         # Build context for LLM
         action_context = f"Tool: {tool_name}\n"
         if user_prompt and hook_event == "UserPromptSubmit":
-            action_context += f"User Request: {user_prompt[:200]}\n"
+            action_context += f"User Request: {user_prompt}\n"
         elif tool_input:
-            action_context += f"Action: {tool_input[:200]}\n"
+            action_context += f"Action: {tool_input[:500]}\n"
+
+        action_context += f"\nRecent Conversation:\n{conversation_context}"
 
         # Use vibelint LLM with structured output
         try:
