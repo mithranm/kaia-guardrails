@@ -86,7 +86,7 @@ Does this action align with the stated focus? Consider:
                 model=None  # Use default from config
             )
 
-            response = client.complete(request)
+            response = client.process_request_sync(request)
 
             # Parse structured response
             try:
@@ -122,8 +122,15 @@ Does this action align with the stated focus? Consider:
                 # Fallback if structured output fails
                 return {"status": "error", "error": "Failed to parse LLM response"}
 
-        except ImportError:
-            # vibelint not available
-            return {"status": "skipped", "reason": "vibelint LLM not available"}
+        except ImportError as e:
+            # vibelint not available - warn loudly
+            print(f"\n⚠️ FOCUS ALIGNMENT DISABLED", file=sys.stderr)
+            print(f"❌ Cannot import vibelint LLM: {e}", file=sys.stderr)
+            print(f"💡 Install vibelint to enable focus drift detection\n", file=sys.stderr)
+            return {"status": "error", "error": f"vibelint import failed: {e}"}
         except Exception as e:
+            # Other errors - warn loudly
+            print(f"\n⚠️ FOCUS ALIGNMENT CHECK FAILED", file=sys.stderr)
+            print(f"❌ Error: {e}", file=sys.stderr)
+            print(f"💡 Check vibelint configuration\n", file=sys.stderr)
             return {"status": "error", "error": str(e)}
